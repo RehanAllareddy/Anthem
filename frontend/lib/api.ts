@@ -1,4 +1,5 @@
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+// Same-origin: app/api/[...path]/route.ts proxies these calls to the backend.
+export const API_URL = "/api";
 
 export type Category = "upbeat" | "chill" | "pop" | "rap" | "rock";
 

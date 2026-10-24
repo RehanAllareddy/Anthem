@@ -1,35 +1,37 @@
-"""In-process job queue for song generation.
+"""Song jobs: state, the generation pipeline, and expiry.
 
-Jobs run on a small thread pool so HTTP requests return immediately and the
-frontend polls for progress. Job state is mirrored to storage/jobs/<id>/job.json
-(without any of the user's sensitive answers) so it survives a dev-server reload.
-To move to Redis/RQ later, replace `submit()` and `get()`; the pipeline
-functions don't depend on the queue.
+The API creates a job and enqueues a message (tasks.enqueue); a worker (a Vercel
+Queues subscriber in production, a local thread in development) runs it. Several
+instances may serve one user, so storage is the single source of truth:
+
+    jobs/<id>/state/<ms>-<seq>.json   immutable state snapshots, newest wins
+    jobs/<id>/vocals/NN.wav           one recorded clip per unique lyric line
+    jobs/<id>/song.<mp3|wav>          the finished mix
+
+Nothing the user typed about how they feel is ever written to storage.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
-import shutil
-import threading
+import re
+import secrets
 import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
+from pydub import AudioSegment
+
+from . import tasks
 from .beats import Beat, get_beat
 from .claude import ClaudeUnavailable
 from .config import get_settings
 from .lyrics import SongRequestData, write_lyrics
-from .mixer import VocalLine, mix_song
+from .mixer import VocalLine, decode_wav, mix_song
+from .storage import get_storage
 from .vocals import Delivery, VocalError, get_provider
 
 log = logging.getLogger(__name__)
-
-_lock = threading.Lock()
-_jobs: Dict[str, dict] = {}
-_executor: Optional[ThreadPoolExecutor] = None
 
 STAGES = {
     "queued": "Getting ready",
@@ -39,103 +41,202 @@ STAGES = {
     "done": "Your song is ready",
     "error": "Something went wrong",
 }
+FINAL = ("done", "error")
+_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+PROGRESS_WRITE_INTERVAL_S = 3.0
 
 
-def _pool() -> ThreadPoolExecutor:
-    global _executor
-    if _executor is None:
-        _executor = ThreadPoolExecutor(max_workers=get_settings().max_workers, thread_name_prefix="song")
-    return _executor
+# ------------------------------------------------------------------- ids
+
+def new_job_id(now: Optional[float] = None) -> str:
+    """32 hex chars: 8 for the creation time (so cleanup needs no reads) + 24 random."""
+    return f"{int(now or time.time()):08x}{secrets.token_hex(12)}"
 
 
-def job_dir(job_id: str) -> Path:
-    return get_settings().jobs_dir / job_id
+def created_at(job_id: str) -> float:
+    return float(int(job_id[:8], 16))
 
 
-def _save(job: dict) -> None:
-    d = job_dir(job["id"])
-    d.mkdir(parents=True, exist_ok=True)
-    tmp = d / "job.json.tmp"
-    tmp.write_text(json.dumps(job))
-    tmp.replace(d / "job.json")
+def valid_id(job_id: str) -> bool:
+    return bool(_ID_RE.match(job_id))
 
 
-def _update(job_id: str, **fields) -> dict:
-    with _lock:
-        job = _jobs[job_id]
-        job.update(fields)
-        job["updated_at"] = time.time()
-        _save(job)
-        return dict(job)
+def _prefix(job_id: str) -> str:
+    return f"jobs/{job_id}/"
 
+
+# ----------------------------------------------------------------- state
 
 def get(job_id: str) -> Optional[dict]:
-    # Ids are uuid4 hex; reject anything else before touching the filesystem.
-    if len(job_id) != 32 or not all(c in "0123456789abcdef" for c in job_id):
+    if not valid_id(job_id):
         return None
-    with _lock:
-        if job_id in _jobs:
-            return dict(_jobs[job_id])
-    path = job_dir(job_id) / "job.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    return None
+    store = get_storage()
+    snapshots = store.list(_prefix(job_id) + "state/")
+    if not snapshots:
+        return None
+    data = store.get(snapshots[-1])
+    return json.loads(data) if data else None
 
 
-def forget(job_id: str) -> None:
-    with _lock:
-        _jobs.pop(job_id, None)
+class JobRecorder:
+    """Writes state snapshots for a job. Only one worker writes a given job."""
+
+    def __init__(self, state: dict):
+        self.state = state
+        self._seq = 0
+        self._last_write = 0.0
+
+    def update(self, **fields) -> None:
+        status_changed = "status" in fields and fields["status"] != self.state.get("status")
+        self.state.update(fields)
+        self.state["updated_at"] = time.time()
+        # Progress ticks are throttled; status changes are always written.
+        if status_changed or time.time() - self._last_write >= PROGRESS_WRITE_INTERVAL_S:
+            self.flush()
+
+    def flush(self) -> None:
+        self._seq += 1
+        path = f"{_prefix(self.state['id'])}state/{int(time.time() * 1000):013d}-{self._seq:04d}.json"
+        get_storage().put(path, json.dumps(self.state).encode(), "application/json")
+        self._last_write = time.time()
 
 
-def _new_job(beat: Beat, voice_id: str, **extra) -> dict:
-    job = {
-        "id": uuid.uuid4().hex,
+def _initial_state(job_id: str, beat: Beat, voice_id: str, **extra) -> dict:
+    return {
+        "id": job_id,
         "status": "queued",
         "stage": STAGES["queued"],
         "progress": 0.0,
-        "created_at": time.time(),
+        "created_at": created_at(job_id),
         "updated_at": time.time(),
         "beat_id": beat.id,
         "voice_id": voice_id,
         "error": None,
         **extra,
     }
-    with _lock:
-        _jobs[job["id"]] = job
-        _save(job)
-    return job
-
-
-def _run(job_id: str, fn: Callable[[], None]) -> None:
-    try:
-        fn()
-    except (ClaudeUnavailable, VocalError) as e:
-        log.warning("job %s failed: %s", job_id, type(e).__name__)
-        _update(job_id, status="error", stage=STAGES["error"], error=_friendly(e))
-    except Exception as e:  # noqa: BLE001 - surface any failure to the user, not a stuck spinner
-        log.error("job %s crashed: %s", job_id, type(e).__name__)
-        _update(job_id, status="error", stage=STAGES["error"], error="We couldn't finish your song. Please try again.")
 
 
 def _friendly(e: Exception) -> str:
     if isinstance(e, ClaudeUnavailable):
         return "We couldn't write your lyrics just now. Please try again in a moment."
-    return "We couldn't record the vocals just now. Please try again in a moment."
+    if isinstance(e, VocalError):
+        return "We couldn't record the vocals just now. Please try again in a moment."
+    return "We couldn't finish your song. Please try again."
 
 
-# ------------------------------------------------------------------ pipeline
+# --------------------------------------------------------------- creating
 
-def _record_vocals(job_id: str, sections: List[dict], beat: Beat, voice_id: str) -> List[VocalLine]:
+def _schedule_expiry(job_id: str) -> None:
+    delay = get_settings().retention_hours * 3600
+    if delay >= tasks.MAX_RETENTION_S:
+        return  # longer than a queue message can wait; the sweep handles it
+    tasks.enqueue(
+        {"kind": "expire", "job_id": job_id},
+        delay_s=delay,
+        retention_s=min(delay + 3600, tasks.MAX_RETENTION_S),
+    )
+
+
+def create_song(request: dict, beat: Beat, voice_id: str, name: str) -> str:
+    """request: validated SongIn fields. May include free_text, which only travels
+    inside the short-lived queue message."""
+    job_id = new_job_id()
+    JobRecorder(_initial_state(job_id, beat, voice_id, name=name)).flush()
+    tasks.enqueue(
+        {"kind": "song", "job_id": job_id, "request": request},
+        retention_s=tasks.SONG_MESSAGE_RETENTION_S,
+    )
+    _schedule_expiry(job_id)
+    return job_id
+
+
+def create_remix(source: dict, beat: Beat) -> str:
+    job_id = new_job_id()
+    JobRecorder(
+        _initial_state(
+            job_id,
+            beat,
+            source["voice_id"],
+            name=source.get("name"),
+            title=source.get("title"),
+            sections=source.get("sections"),
+            remix_of=source["id"],
+        )
+    ).flush()
+    tasks.enqueue({"kind": "remix", "job_id": job_id, "source_id": source["id"]})
+    _schedule_expiry(job_id)
+    return job_id
+
+
+# ---------------------------------------------------------------- worker
+
+def handle_message(message: dict) -> None:
+    """Entry point for a queued message. Safe to call more than once per message."""
+    kind, job_id = message.get("kind"), message.get("job_id", "")
+    if not valid_id(job_id):
+        log.warning("dropping message with invalid job id")
+        return
+    if kind == "expire":
+        delete_job(job_id)
+        return
+
+    state = get(job_id)
+    if state is None or state.get("status") in FINAL:
+        return  # expired, or a redelivery of a job that already finished
+    rec = JobRecorder(state)
+    try:
+        if kind == "song":
+            _run_song(rec, message["request"])
+        elif kind == "remix":
+            _run_remix(rec, message["source_id"])
+        else:
+            log.warning("unknown message kind %r", kind)
+    except Exception as e:  # noqa: BLE001 - always end in a state the user can see
+        log.warning("job %s failed: %s", job_id, type(e).__name__)
+        rec.update(status="error", stage=STAGES["error"], error=_friendly(e))
+
+
+def _run_song(rec: JobRecorder, request: dict) -> None:
+    beat = get_beat(request["beat_id"])
+    if beat is None:
+        raise ValueError("beat no longer exists")
+    req = SongRequestData(
+        name=request["name"],
+        age_range=request["age_range"],
+        hobbies=request["hobbies"],
+        feelings=request["feelings"],
+        feelings_other=request.get("feelings_other"),
+        messages=request.get("messages", []),
+        custom_message=request.get("custom_message"),
+        beat=beat,
+        free_text=request.get("free_text"),
+    )
+    rec.update(status="writing", stage=STAGES["writing"], progress=0.08)
+    lyrics = write_lyrics(req)
+    req.free_text = None  # drop it as soon as the lyrics exist
+    request.pop("free_text", None)
+    rec.update(
+        status="singing",
+        stage=STAGES["singing"],
+        progress=0.3,
+        title=lyrics["title"],
+        sections=lyrics["sections"],
+        bars_per_line=lyrics["timing"]["bars_per_line"],
+    )
+    lines = _record_vocals(rec, lyrics["sections"], beat, rec.state["voice_id"])
+    _mix(rec, beat, lines, lyrics["timing"]["bars_per_line"])
+
+
+def _record_vocals(rec: JobRecorder, sections: List[dict], beat: Beat, voice_id: str) -> List[VocalLine]:
     provider = get_provider()
-    clips_dir = job_dir(job_id) / "vocals"
-    clips_dir.mkdir(parents=True, exist_ok=True)
-
+    store = get_storage()
     flat = [(si, s["type"], text) for si, s in enumerate(sections) for text in s["lines"]]
     # Repeated choruses reuse the same recording.
     first_index: Dict[tuple, int] = {}
     for i, (_, st, t) in enumerate(flat):
         first_index.setdefault((st, t), i)
-    unique: Dict[tuple, Path] = {}
+
+    clips: Dict[tuple, str] = {}
     total = len(first_index)
     for n, ((stype, text), idx) in enumerate(first_index.items()):
         prev_text = flat[idx - 1][2] if idx > 0 else None
@@ -143,83 +244,82 @@ def _record_vocals(job_id: str, sections: List[dict], beat: Beat, voice_id: str)
         seg = provider.synthesize(
             text, voice_id, Delivery(beat.category, beat.feel_bpm, stype), previous_text=prev_text, next_text=next_text
         )
-        path = clips_dir / f"{n:02d}.wav"
-        seg.export(path, format="wav")
-        unique[(stype, text)] = path
-        _update(job_id, progress=round(0.3 + 0.55 * (n + 1) / total, 3))
+        buf = io.BytesIO()
+        seg.export(buf, format="wav")
+        path = f"{_prefix(rec.state['id'])}vocals/{n:02d}.wav"
+        store.put(path, buf.getvalue(), "audio/wav")
+        clips[(stype, text)] = path
+        rec.update(progress=round(0.3 + 0.55 * (n + 1) / total, 3))
 
-    return [VocalLine(section=si, section_type=st, text=t, clip=unique[(st, t)]) for si, st, t in flat]
+    return [VocalLine(section=si, section_type=st, text=t, clip=clips[(st, t)]) for si, st, t in flat]
 
 
-def _mix(job_id: str, beat: Beat, lines: List[VocalLine], bars_per_line: int) -> None:
-    _update(job_id, status="mixing", stage=STAGES["mixing"], progress=0.88)
-    audio_path, timeline, duration_ms = mix_song(beat, lines, bars_per_line, job_dir(job_id) / "song")
-    _update(
-        job_id,
+def _load_clip(path: str) -> AudioSegment:
+    data = get_storage().get(path)
+    if data is None:
+        raise FileNotFoundError("vocal clip has expired")
+    return decode_wav(data)
+
+
+def _mix(rec: JobRecorder, beat: Beat, lines: List[VocalLine], bars_per_line: int) -> None:
+    rec.update(status="mixing", stage=STAGES["mixing"], progress=0.88)
+    audio, ext, timeline, duration_ms = mix_song(beat, lines, bars_per_line, _load_clip)
+    audio_path = f"{_prefix(rec.state['id'])}song.{ext}"
+    get_storage().put(audio_path, audio, "audio/mpeg" if ext == "mp3" else "audio/wav")
+    rec.update(
         status="done",
         stage=STAGES["done"],
         progress=1.0,
-        audio_file=audio_path.name,
+        audio_path=audio_path,
         timeline=timeline,
         duration=round(duration_ms / 1000, 2),
-        clips=[{"section": l.section, "type": l.section_type, "text": l.text, "clip": l.clip.name} for l in lines],
+        bars_per_line=bars_per_line,
+        clips=[{"section": l.section, "type": l.section_type, "text": l.text, "clip": l.clip} for l in lines],
     )
 
 
-def submit_song(req: SongRequestData, voice_id: str) -> dict:
-    # Only non-sensitive fields go into the persisted job record.
-    job = _new_job(req.beat, voice_id, name=req.name)
-
-    def work() -> None:
-        _update(job["id"], status="writing", stage=STAGES["writing"], progress=0.08)
-        lyrics = write_lyrics(req)
-        req.free_text = None  # drop it as soon as the lyrics exist
-        _update(
-            job["id"],
-            status="singing",
-            stage=STAGES["singing"],
-            progress=0.3,
-            title=lyrics["title"],
-            sections=lyrics["sections"],
-            bars_per_line=lyrics["timing"]["bars_per_line"],
-        )
-        lines = _record_vocals(job["id"], lyrics["sections"], req.beat, voice_id)
-        _mix(job["id"], req.beat, lines, lyrics["timing"]["bars_per_line"])
-
-    _pool().submit(_run, job["id"], work)
-    return job
-
-
-def submit_remix(source: dict, beat: Beat) -> dict:
+def _run_remix(rec: JobRecorder, source_id: str) -> None:
     """Same lyrics and recorded vocals, new beat: no new Claude or TTS calls."""
-    src_dir = job_dir(source["id"]) / "vocals"
-    job = _new_job(
-        beat,
-        source["voice_id"],
-        name=source.get("name"),
-        title=source.get("title"),
-        sections=source.get("sections"),
-        bars_per_line=source.get("bars_per_line"),
-        remix_of=source["id"],
-    )
+    source = get(source_id)
+    beat = get_beat(rec.state["beat_id"])
+    if not source or source.get("status") != "done" or beat is None:
+        raise FileNotFoundError("source song has expired")
+    lines = [
+        VocalLine(section=c["section"], section_type=c["type"], text=c["text"], clip=c["clip"]) for c in source["clips"]
+    ]
+    # Keep each line roughly the same length in seconds on the new tempo.
+    old = get_beat(source["beat_id"])
+    bars = source.get("bars_per_line") or 1
+    if old:
+        seconds = bars * 60.0 / old.bpm * old.beats_per_bar
+        bars = max(1, round(seconds / (60.0 / beat.bpm * beat.beats_per_bar)))
+    _mix(rec, beat, lines, bars)
 
-    def work() -> None:
-        dst = job_dir(job["id"]) / "vocals"
-        shutil.copytree(src_dir, dst)
-        lines = [
-            VocalLine(section=c["section"], section_type=c["type"], text=c["text"], clip=dst / c["clip"])
-            for c in source["clips"]
-        ]
-        # Keep each line roughly the same length in seconds on the new tempo.
-        old = get_beat(source["beat_id"])
-        bars = source.get("bars_per_line") or 1
-        if old:
-            seconds = bars * 60.0 / old.bpm * old.beats_per_bar
-            bars = max(1, round(seconds / (60.0 / beat.bpm * beat.beats_per_bar)))
-        _mix(job["id"], beat, lines, bars)
 
-    _pool().submit(_run, job["id"], work)
-    return job
+# ----------------------------------------------------------------- expiry
+
+def delete_job(job_id: str) -> None:
+    get_storage().delete_prefix(_prefix(job_id))
+
+
+def purge_expired(now: Optional[float] = None) -> int:
+    """Delete every job older than the retention window. Returns how many."""
+    cutoff = (now or time.time()) - get_settings().retention_hours * 3600
+    removed = 0
+    for job_id in get_storage().folders("jobs/"):
+        if valid_id(job_id) and created_at(job_id) < cutoff:
+            delete_job(job_id)
+            removed += 1
+    if removed:
+        log.info("cleanup: removed %d expired song(s)", removed)
+    return removed
+
+
+# ---------------------------------------------------------------- views
+
+def audio(job: dict) -> Optional[bytes]:
+    path = job.get("audio_path")
+    return get_storage().get(path) if path else None
 
 
 def public_view(job: dict) -> dict:
@@ -230,7 +330,7 @@ def public_view(job: dict) -> dict:
             timeline=job.get("timeline"),
             duration=job.get("duration"),
             audio_url=f"/songs/{job['id']}/audio",
-            audio_format=Path(job["audio_file"]).suffix.lstrip("."),
+            audio_format=job["audio_path"].rsplit(".", 1)[-1],
             expires_at=job["created_at"] + get_settings().retention_hours * 3600,
         )
     return view

@@ -4,7 +4,7 @@
 
 # generated audio
 storage/
-beats/loops/generated/
+backend/beats/loops/generated/
 
 # python
 __pycache__/

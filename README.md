@@ -20,28 +20,34 @@ Welcome → Check-in (name, age range, hobbies, feelings, message) → Beat + vo
 ## Project layout
 
 ```
-backend/            FastAPI app (Python 3.9+)
-  app/main.py       HTTP routes
-  app/jobs.py       In-process job queue (thread pool) + job state on disk
+vercel.json         Vercel services: public Next.js frontend, internal FastAPI backend
+frontend/           Next.js 15 (App Router) + Tailwind v4
+  app/api/[...path] Proxies /api/* to the backend (BACKEND_URL service binding)
+backend/            FastAPI app (Python 3.12, managed with uv)
+  pyproject.toml    Dependencies + Vercel entrypoint, build script, queue subscriber
+  app/main.py       HTTP routes, all under /api
+  app/jobs.py       Job state, generation pipeline, expiry
+  app/tasks.py      Runs jobs: Vercel Queues in production, threads locally
+  app/worker.py     Vercel Queues subscriber (private queue-triggered function)
+  app/storage.py    Private Vercel Blob in production, ./storage on disk locally
   app/safety.py     Free-text wellbeing screening (keywords + Claude)
   app/lyrics.py     Claude lyric generation, style/tempo fitting, checks
   app/vocals/       Swappable vocal providers: elevenlabs.py, local.py
-  app/mixer.py      Beat looping, downbeat alignment, levels, fades, export
-  app/cleanup.py    Deletes songs after RETENTION_HOURS (runs in-process; also CLI)
+  app/mixer.py      Beat looping, downbeat alignment, levels, fades, MP3 export
+  app/cleanup.py    Retention sweep (background thread locally; CLI)
+  beats/
+    beats.json        Beat manifest (id, name, category, bpm, key, mood, file, license, source_url)
+    generate_beats.py Synthesizes the 15 placeholder loops (numpy, CC0)
+    loops/            Loop audio (generated/ is gitignored; rebuilt by the script and the Vercel build)
   tests/            Offline end-to-end tests (Claude stubbed, local TTS)
-beats/
-  beats.json        Beat manifest (id, name, category, bpm, key, mood, file, license, source_url)
-  generate_beats.py Synthesizes the 15 placeholder loops (numpy, CC0)
-  loops/            Loop audio (generated/ is gitignored and rebuilt by the script)
-frontend/           Next.js 15 (App Router) + Tailwind v4
-storage/            Generated songs and preview cache (gitignored, auto-deleted)
+storage/            Local-dev songs and job state (gitignored, auto-deleted)
 ```
 
 ## Requirements
 
-- **Python 3.9+** (3.11+ recommended)
+- **Python 3.12** and **[uv](https://docs.astral.sh/uv/)** (`brew install uv`)
 - **Node.js 20+**
-- **ffmpeg** for MP3 export: `brew install ffmpeg` (macOS) or `apt install ffmpeg`. Without it everything still works, but songs and previews are exported as WAV instead.
+- **ffmpeg** for MP3 export is bundled through the `imageio-ffmpeg` package, so nothing extra is needed. A system ffmpeg is used if one is installed.
 - For local/offline vocals: macOS (`say` is built in) or `espeak-ng` on Linux.
 
 ### API keys
@@ -58,38 +64,72 @@ ElevenLabs licensing: free-tier output may not be used commercially and requires
 ```bash
 # 1. Config
 cp .env.example .env            # then fill in ANTHROPIC_API_KEY (and ELEVENLABS_API_KEY if you have one)
-cp frontend/.env.example frontend/.env.local
 
-# 2. Beats (generates the 15 placeholder loops, ~2 seconds)
-python3 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt
-backend/.venv/bin/python beats/generate_beats.py
+# 2. Backend deps + beats (generates the 15 placeholder loops, ~2 seconds)
+cd backend
+uv sync
+uv run python beats/generate_beats.py
 
-# 3. Backend: http://localhost:8000 (docs at /docs)
-cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
+# 3. Backend: http://localhost:8000 (docs at /docs, API under /api)
+uv run uvicorn app.main:app --reload --port 8000
 
 # 4. Frontend: http://localhost:3000 (in a second terminal)
 cd frontend && npm install && npm run dev
 ```
 
-On startup the backend logs which vocal provider is active and whether MP3 export is available. `GET /health` reports the same.
+The frontend's `/api/*` route proxies to `BACKEND_URL`, which defaults to `http://localhost:8000`, so the browser only ever talks to the frontend. Locally, songs run on background threads and are stored in `./storage`.
+
+You can also run both services together with `vercel dev` from the repo root (Vercel CLI 48.1.8+), which injects `BACKEND_URL` through the service binding.
+
+On startup the backend logs its vocal provider, storage, task runner, and whether MP3 export is available. `GET /api/health` reports some of the same.
 
 ### Tests
 
 ```bash
 cd backend
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q
+uv run python -m pytest -q
 ```
 
-The tests run fully offline. Claude is stubbed and vocals use local TTS. They cover the beat manifest, keyword screening, a full song plus remix (including bar alignment and the name-in-chorus guarantee), that free text never reaches disk, and 24-hour cleanup.
+The tests run fully offline: Claude is stubbed, vocals use local TTS, storage is a temp directory, and tasks run on threads. They cover:
+- the beat manifest and that routes only answer under `/api`
+- keyword screening
+- a full song plus remix, including bar alignment and the name-in-chorus guarantee
+- that free text never reaches storage
+- that a redelivered queue message is ignored
+- expiry by message and by sweep
+- that the queue subscriber is registered
+
+## Deploy on Vercel
+
+`vercel.json` deploys one project with two services:
+
+| Service | Root | Public? | Notes |
+|---|---|---|---|
+| `frontend` | `frontend/` | Yes, everything (`/(.*)`) | Next.js. Calls the backend from `app/api/[...path]/route.ts` through a binding that injects `BACKEND_URL`. |
+| `backend` | `backend/` | No, internal only | FastAPI (`app.main:app`). Reachable only through the frontend's binding. Also deploys the queue subscriber in `app/worker.py`. |
+
+How generation runs on Vercel:
+1. `POST /api/songs` writes a "queued" job state to Blob and publishes a message to the `anthem-songs` topic.
+2. A private queue-triggered function (`app/worker.py`) writes the lyrics, records the vocals, mixes the song, and stores it in Blob. It updates the job state as it goes.
+3. The browser polls `/api/songs/<id>`. Each poll reads the newest state snapshot from Blob, so it works on any instance.
+4. The job also publishes a delayed `expire` message that deletes its files after `RETENTION_HOURS`. A sweep on new song requests backs this up.
+
+Setup:
+1. **Create a Blob store** (Storage tab → Blob), choose **Private** access, and connect it to the project. This adds `BLOB_STORE_ID`, and the backend authenticates with OIDC.
+2. **Add environment variables:** `ANTHROPIC_API_KEY`, and `ELEVENLABS_API_KEY` (required on Vercel, because `say` and `espeak` aren't available there).
+3. **Deploy** with `vercel deploy` or by pushing to a connected Git repo. The backend build (`[tool.vercel.scripts] build` in `backend/pyproject.toml`) generates the beat loops into the bundle.
+
+Notes:
+- **Queues and services are in beta** on Vercel. Queue messages are pinned to the deployment that published them, so an old deployment keeps processing (and expiring) its own songs until those messages are done.
+- Generation should take well under the default 300 s function limit. If you use longer songs or slower voices, raise it.
+- Each song makes about 20 TTS calls and 1–2 Claude calls, plus roughly 15–25 Blob writes and a Blob list and read per status poll.
 
 ## Adding beats
 
 1. Get a loop that is **8–16 bars** long, in 4/4, trimmed exactly on bar boundaries so it repeats cleanly. WAV is best (MP3 also works when ffmpeg is installed).
 2. Check the license. Use only beats you made yourself, or loops marked **CC0** or explicitly **free for commercial use and redistribution**. On sites like Pixabay or Freesound, check each file's license; on Freesound, filter to CC0.
-3. Put the file in `beats/loops/`, e.g. `beats/loops/pop-sunny-day.wav`.
-4. Add an entry to the `beats` array in `beats/beats.json`:
+3. Put the file in `backend/beats/loops/`, e.g. `backend/beats/loops/pop-sunny-day.wav`, and commit it.
+4. Add an entry to the `beats` array in `backend/beats/beats.json`:
 
 ```json
 {
@@ -125,15 +165,14 @@ Text-to-speech speaks rhythmically; it doesn't sing a melody. It works well for 
 ## Privacy & safety
 
 - **No accounts.** Check-in answers stay in the browser tab (`sessionStorage`) until the user creates their song.
-- **The free-text answer is never logged or saved.** It is used in memory for screening and lyric writing, then dropped. Job records on disk (`storage/jobs/<id>/job.json`) contain the name, beat, voice, and generated lyrics, but not the free text, feelings, or hobbies. A test asserts this.
+- **The free-text answer is never logged or saved.** It is used for screening and lyric writing, then dropped. On Vercel it travels to the worker inside the queue message, which is set to expire after 15 minutes. Stored job state contains the name, beat, voice, and generated lyrics, but not the free text, feelings, or hobbies. A test asserts this.
 - **Error logs** record only the exception type and Anthropic request IDs, never prompt or response content.
-- **Songs are private.** They live under an unguessable ID with no listing endpoint, are served with `Cache-Control: private, no-store`, and are **deleted after 24 hours** (`RETENTION_HOURS`) by a cleanup thread in the API process. If you run several API processes, or prefer cron, also schedule `cd backend && .venv/bin/python -m app.cleanup`.
+- **Songs are private.** They're stored in a private Blob store (on disk locally) under an unguessable ID, with no listing endpoint. They're served only through the API with `Cache-Control: private, no-store`, and the backend itself has no public route. They are **deleted after 24 hours** (`RETENTION_HOURS`): on Vercel by a delayed queue message plus a sweep, and locally by a cleanup thread. To sweep by hand: `cd backend && uv run python -m app.cleanup`.
 - **No analytics.** None is included. If you add some, keep sensitive inputs out of it.
 - **Lyrics guardrails:** hopeful, age-appropriate (school-safe for 13–17), no profanity (instructed, then checked), nothing shaming, and only a brief acknowledgement of the struggle. User text is passed to Claude as clearly delimited context, never as instructions.
 - **Claude calls** use `claude-opus-5-5` with structured JSON output and server-side refusal fallback enabled (`fallbacks: "default"`).
 
 ## Production notes
 
-- **Job queue:** jobs run on an in-process thread pool (`MAX_WORKERS`), with state mirrored to disk. This is fine for a single server. To scale out, swap `submit_song` / `submit_remix` / `get` in `app/jobs.py` for RQ or Celery on Redis; the pipeline functions don't depend on the queue.
 - **Rate limiting:** add per-IP rate limiting in front of `POST /songs` and `POST /screen` (each song makes 1–2 Claude calls and about 20 TTS calls).
 - **Crisis resources** are US-focused (988, Crisis Text Line). The support page links to findahelpline.com for other countries. Localize these if you launch elsewhere.

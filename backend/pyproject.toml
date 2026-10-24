@@ -1,0 +1,35 @@
+[project]
+name = "anthem-backend"
+version = "0.1.0"
+description = "Anthem song pipeline: lyrics, vocals, mixing"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.125.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pydub>=0.25.1",
+    "numpy>=1.26",
+    "httpx>=0.27",
+    "imageio-ffmpeg>=0.5",  # static ffmpeg binary for MP3 export where none is installed (e.g. Vercel)
+    "vercel>=0.12",         # Vercel Blob + Queues SDKs
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+# --- Vercel -----------------------------------------------------------------
+[tool.vercel]
+entrypoint = "app.main:app"
+
+[tool.vercel.scripts]
+# Synthesize the placeholder beat loops into the function bundle.
+build = "python beats/generate_beats.py"
+
+# Song generation and expiry run as a private queue-triggered function.
+[[tool.vercel.subscribers]]
+entrypoint = "app.worker"

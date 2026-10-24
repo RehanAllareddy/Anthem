@@ -1,11 +1,12 @@
 """Lay vocal lines over a looped beat, each line starting on a downbeat."""
 from __future__ import annotations
 
+import io
 import math
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Tuple
+from functools import lru_cache
+from typing import Callable, List, Optional, Tuple
 
 from pydub import AudioSegment, effects
 from pydub.silence import detect_leading_silence
@@ -16,6 +17,7 @@ VOCAL_TARGET_DBFS = -16.0
 BEAT_TARGET_DBFS = -21.0  # sits under the vocals
 INTRO_MIN_MS = 3000
 OUTRO_BARS = 2
+MP3_BITRATE = "128k"  # ~1 MB per minute keeps songs well under function response limits
 
 
 @dataclass
@@ -23,23 +25,41 @@ class VocalLine:
     section: int  # index into lyrics sections
     section_type: str  # verse | chorus
     text: str
-    clip: Path
+    clip: str  # storage path of the recorded line (WAV)
+
+
+@lru_cache
+def ffmpeg_path() -> Optional[str]:
+    """System ffmpeg, else the static binary shipped with imageio-ffmpeg (used on Vercel)."""
+    found = shutil.which("ffmpeg")
+    if not found:
+        try:
+            import imageio_ffmpeg
+
+            found = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:  # noqa: BLE001 - optional dependency or unsupported platform
+            found = None
+    if found:
+        AudioSegment.converter = found
+    return found
 
 
 def has_ffmpeg() -> bool:
-    return bool(shutil.which("ffmpeg") or shutil.which("avconv"))
+    return ffmpeg_path() is not None
 
 
-def export_audio(audio: AudioSegment, out: Path) -> Path:
-    """Export MP3 when ffmpeg is available, otherwise WAV (dev fallback)."""
-    out.parent.mkdir(parents=True, exist_ok=True)
+def encode(audio: AudioSegment) -> Tuple[bytes, str]:
+    """Return (bytes, extension): MP3 when ffmpeg is available, otherwise WAV."""
+    buf = io.BytesIO()
     if has_ffmpeg():
-        target = out.with_suffix(".mp3")
-        audio.export(target, format="mp3", bitrate="192k", tags={"artist": "Anthem"})
-    else:
-        target = out.with_suffix(".wav")
-        audio.export(target, format="wav")
-    return target
+        audio.export(buf, format="mp3", bitrate=MP3_BITRATE, tags={"artist": "Anthem"})
+        return buf.getvalue(), "mp3"
+    audio.export(buf, format="wav")
+    return buf.getvalue(), "wav"
+
+
+def decode_wav(data: bytes) -> AudioSegment:
+    return AudioSegment.from_wav(io.BytesIO(data))
 
 
 def _trim(seg: AudioSegment) -> AudioSegment:
@@ -67,9 +87,9 @@ def mix_song(
     beat: Beat,
     lines: List[VocalLine],
     bars_per_line: int,
-    out_base: Path,
-) -> Tuple[Path, List[dict], int]:
-    """Return (audio path, timeline, duration_ms).
+    load_clip: Callable[[str], AudioSegment],
+) -> Tuple[bytes, str, List[dict], int]:
+    """Return (audio bytes, extension, timeline, duration_ms).
 
     Timeline entries: {"section", "line", "text", "start", "end"} in seconds.
     """
@@ -96,7 +116,7 @@ def mix_song(
 
         if line.clip not in clip_cache:
             clip_cache[line.clip] = _level(
-                _trim(AudioSegment.from_file(line.clip)).set_frame_rate(44100).set_channels(2),
+                _trim(load_clip(line.clip)).set_frame_rate(44100).set_channels(2),
                 VOCAL_TARGET_DBFS,
             )
         voc = clip_cache[line.clip]
@@ -134,4 +154,5 @@ def mix_song(
     song = beat_track.overlay(vocals)
     song = effects.normalize(song, headroom=1.0)
     song = song.fade_in(1200).fade_out(int(min(OUTRO_BARS * bar_ms, 6000)))
-    return export_audio(song, out_base), timeline, total_ms
+    data, ext = encode(song)
+    return data, ext, timeline, total_ms

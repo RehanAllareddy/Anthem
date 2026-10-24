@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 from pydub import AudioSegment
@@ -74,17 +74,16 @@ def load_loop(beat: Beat) -> AudioSegment:
     return loop.set_frame_rate(44100).set_channels(2).set_sample_width(2)
 
 
-def preview_path(beat: Beat) -> Path:
-    """10-second preview, rendered once and cached next to generated songs."""
-    out = get_settings().previews_dir / f"{beat.id}.mp3"
-    wav_out = out.with_suffix(".wav")
-    src_mtime = beat.path.stat().st_mtime
-    for candidate in (out, wav_out):
-        if candidate.exists() and candidate.stat().st_mtime >= src_mtime:
-            return candidate
+_previews: Dict[str, Tuple[bytes, str]] = {}
 
-    loop = load_loop(beat)
-    clip = (loop * math.ceil(PREVIEW_MS / len(loop)))[:PREVIEW_MS].fade_in(150).fade_out(1200)
-    from .mixer import export_audio  # local import avoids a cycle
 
-    return export_audio(clip, out)
+def preview_audio(beat: Beat) -> Tuple[bytes, str]:
+    """10-second preview as (bytes, extension), rendered once per instance."""
+    key = f"{beat.id}:{beat.path.stat().st_mtime}"
+    if key not in _previews:
+        from .mixer import encode  # local import avoids a cycle
+
+        loop = load_loop(beat)
+        clip = (loop * math.ceil(PREVIEW_MS / len(loop)))[:PREVIEW_MS].fade_in(150).fade_out(1200)
+        _previews[key] = encode(clip)
+    return _previews[key]

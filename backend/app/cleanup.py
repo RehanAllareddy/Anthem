@@ -1,45 +1,40 @@
 """Delete generated songs after the retention window (24h by default).
 
-Runs automatically inside the API process. Can also be run on its own, e.g. from cron:
-    python -m app.cleanup
+On Vercel each job schedules its own deletion with a delayed queue message
+(jobs._schedule_expiry), and the API sweeps opportunistically as a backstop.
+Locally a background thread sweeps every CLEANUP_INTERVAL_MINUTES.
+
+Run a sweep by hand (e.g. from cron):
+    uv run python -m app.cleanup
 """
 from __future__ import annotations
 
-import json
 import logging
-import shutil
 import threading
 import time
-from typing import Optional
 
-from . import jobs
 from .config import get_settings
+from .jobs import purge_expired
 
 log = logging.getLogger(__name__)
 
+_last_sweep = 0.0
+_sweep_lock = threading.Lock()
 
-def purge_expired(now: Optional[float] = None) -> int:
-    s = get_settings()
-    now = now or time.time()
-    cutoff = now - s.retention_hours * 3600
-    removed = 0
-    for d in s.jobs_dir.iterdir() if s.jobs_dir.exists() else []:
-        if not d.is_dir():
-            continue
-        created = d.stat().st_mtime
-        meta = d / "job.json"
-        if meta.exists():
-            try:
-                created = json.loads(meta.read_text()).get("created_at", created)
-            except (json.JSONDecodeError, OSError):
-                pass
-        if created < cutoff:
-            shutil.rmtree(d, ignore_errors=True)
-            jobs.forget(d.name)
-            removed += 1
-    if removed:
-        log.info("cleanup: removed %d expired song(s)", removed)
-    return removed
+
+def maybe_sweep() -> None:
+    """Sweep at most once per cleanup interval per instance; never raises."""
+    global _last_sweep
+    interval = get_settings().cleanup_interval_minutes * 60
+    if time.time() - _last_sweep < interval or not _sweep_lock.acquire(blocking=False):
+        return
+    try:
+        _last_sweep = time.time()
+        purge_expired()
+    except Exception:  # noqa: BLE001 - cleanup must never break a user request
+        log.exception("cleanup sweep failed")
+    finally:
+        _sweep_lock.release()
 
 
 def start_background_cleanup() -> threading.Event:
@@ -48,10 +43,7 @@ def start_background_cleanup() -> threading.Event:
 
     def loop() -> None:
         while not stop.is_set():
-            try:
-                purge_expired()
-            except Exception:  # noqa: BLE001 - never let cleanup kill the thread
-                log.exception("cleanup failed")
+            maybe_sweep()
             stop.wait(interval)
 
     threading.Thread(target=loop, name="cleanup", daemon=True).start()

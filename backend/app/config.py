@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_ROOT.parent
+ON_VERCEL = os.environ.get("VERCEL_ENV") in ("production", "preview")
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(ROOT / ".env", ROOT / "backend" / ".env"),
+        env_file=(REPO_ROOT / ".env", BACKEND_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -30,28 +34,38 @@ class Settings(BaseSettings):
     elevenlabs_voice_deep: str = "pNInz6obpgDQGcFmaJgB"
     elevenlabs_voice_smooth: str = "ErXwobaYiR6NdRHJ7Mlw"
 
-    # Storage & privacy
-    beats_dir: Path = ROOT / "beats"
-    storage_dir: Path = ROOT / "storage"
+    # Where songs and job state live: "blob" (Vercel Blob), "local" (disk), or
+    # "auto" (Blob when a Blob store is connected, else disk).
+    storage_backend: str = "auto"
+    # How generation runs: "vercel" (Vercel Queues), "local" (in-process threads),
+    # or "auto" (Queues on Vercel preview/production, threads everywhere else).
+    task_backend: str = "auto"
+
+    beats_dir: Path = BACKEND_ROOT / "beats"
+    # Vercel functions can only write to /tmp.
+    storage_dir: Path = (Path(tempfile.gettempdir()) / "anthem") if os.environ.get("VERCEL") else REPO_ROOT / "storage"
+
+    # Privacy
     retention_hours: float = 24.0
     cleanup_interval_minutes: float = 30.0
 
     # Server
-    cors_origins: List[str] = ["http://localhost:3000"]
+    api_prefix: str = "/api"
     max_workers: int = 2
 
     @property
-    def jobs_dir(self) -> Path:
-        return self.storage_dir / "jobs"
+    def use_blob(self) -> bool:
+        if self.storage_backend == "auto":
+            return bool(os.environ.get("BLOB_STORE_ID") or os.environ.get("BLOB_READ_WRITE_TOKEN"))
+        return self.storage_backend == "blob"
 
     @property
-    def previews_dir(self) -> Path:
-        return self.storage_dir / "previews"
+    def use_vercel_queues(self) -> bool:
+        if self.task_backend == "auto":
+            return ON_VERCEL
+        return self.task_backend == "vercel"
 
 
 @lru_cache
 def get_settings() -> Settings:
-    s = Settings()
-    s.jobs_dir.mkdir(parents=True, exist_ok=True)
-    s.previews_dir.mkdir(parents=True, exist_ok=True)
-    return s
+    return Settings()
