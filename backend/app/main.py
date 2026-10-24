@@ -12,7 +12,7 @@ from . import jobs
 from .beats import CATEGORIES, get_beat, load_beats, preview_audio
 from .cleanup import maybe_sweep, start_background_cleanup
 from .config import get_settings
-from .lyrics import FEELING_LABELS, MESSAGE_LABELS
+from .lyrics import FEELING_LABELS, MESSAGE_LABELS, has_profanity
 from .mixer import has_ffmpeg
 from .safety import keyword_flag, resources, screen_text
 from .storage import get_storage
@@ -114,7 +114,17 @@ class RemixIn(BaseModel):
 
 @router.get("/health")
 def health() -> dict:
-    return {"ok": True, "vocal_provider": get_provider().name, "mp3": has_ffmpeg()}
+    settings = get_settings()
+    problems = settings.setup_problems()
+    return {
+        "ok": not problems,
+        "problems": problems,
+        "lyrics": "claude" if settings.use_claude else "template",
+        "storage": get_storage().name,
+        "tasks": "vercel-queues" if settings.use_vercel_queues else "local-threads",
+        "vocal_provider": get_provider().name,
+        "mp3": has_ffmpeg(),
+    }
 
 
 @router.get("/beats")
@@ -164,6 +174,16 @@ def create_song(body: SongIn) -> dict:
         raise HTTPException(404, "Beat not found")
     if body.voice_id not in {v["id"] for v in VOICE_OPTIONS}:
         raise HTTPException(422, "Unknown voice")
+
+    problems = get_settings().setup_problems()
+    if problems:
+        log.error("refusing to start song: %s", " | ".join(problems))
+        raise HTTPException(503, "Anthem isn't fully set up yet: " + " ".join(problems))
+
+    # Names, hobbies and custom words go straight into the lyrics (always, with templates).
+    typed = [body.name, *body.hobbies, body.custom_message or "", body.feelings_other or ""]
+    if has_profanity(typed):
+        raise HTTPException(422, "Let's keep your song kind and clean. Please choose different words.")
 
     free_text = (body.free_text or "").strip() or None
     # The frontend omits free text after a crisis screen; this is a backstop so the

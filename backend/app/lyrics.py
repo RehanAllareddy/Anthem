@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 
 from .beats import Beat
 from .claude import ClaudeUnavailable, claude_json
+from .config import get_settings
+from .templates import fill
 
 log = logging.getLogger(__name__)
 
@@ -191,9 +193,38 @@ def _ensure_name_line(chorus: List[str], name: str) -> List[str]:
     return chorus[:-1] + [f"{name}, you are amazing"]
 
 
+def _package(title: str, verse1: List[str], chorus: List[str], verse2: List[str], timing: Timing) -> dict:
+    return {
+        "title": title,
+        "sections": [
+            {"type": "verse", "lines": verse1},
+            {"type": "chorus", "lines": chorus},
+            {"type": "verse", "lines": verse2},
+            {"type": "chorus", "lines": chorus},
+        ],
+        "timing": {"bars_per_line": timing.bars_per_line, "syllables": timing.syllables},
+    }
+
+
+def template_message(req: SongRequestData) -> str:
+    """The one message the template chorus sings back: their own words, else their first pick."""
+    if req.custom_message:
+        return req.custom_message
+    # The chorus already sings "you are amazing", so prefer a different pick.
+    picks = [m for m in req.messages if m != "amazing"]
+    return MESSAGE_LABELS[picks[0]] if picks else "you've got this"
+
+
 def write_lyrics(req: SongRequestData) -> dict:
-    """Return {"title", "sections": [{"type", "lines"}], "timing": {...}}."""
+    """Return {"title", "sections": [{"type", "lines"}], "timing": {...}}.
+
+    Uses Claude when it's configured, otherwise the fixed per-genre templates.
+    """
     timing = timing_for(req.beat)
+    if not get_settings().use_claude:
+        song = fill(req.beat.category, req.name, req.hobbies, template_message(req))
+        return _package(song["title"], song["verse1"], song["chorus"], song["verse2"], timing)  # type: ignore[arg-type]
+
     retry_note = ""
     for attempt in range(2):
         data = claude_json(
@@ -214,14 +245,5 @@ def write_lyrics(req: SongRequestData) -> dict:
             retry_note = "\n\nImportant: the previous draft had a word that isn't allowed. Keep every word clean."
             continue
         title = (data.get("title") or f"{req.name}'s Anthem").strip()[:60]
-        return {
-            "title": title,
-            "sections": [
-                {"type": "verse", "lines": verse1},
-                {"type": "chorus", "lines": chorus},
-                {"type": "verse", "lines": verse2},
-                {"type": "chorus", "lines": chorus},
-            ],
-            "timing": {"bars_per_line": timing.bars_per_line, "syllables": timing.syllables},
-        }
+        return _package(title, verse1, chorus, verse2, timing)
     raise ClaudeUnavailable("lyrics_failed_checks")

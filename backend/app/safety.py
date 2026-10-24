@@ -14,6 +14,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from .claude import ClaudeUnavailable, claude_json
+from .config import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,8 @@ def screen_text(text: Optional[str], age_range: str) -> ScreenResult:
         return ScreenResult(flagged=False, category="none", method="keyword")
     if keyword_flag(text):
         return ScreenResult(flagged=True, category="other_crisis", method="keyword")
+    if not get_settings().use_claude:
+        return ScreenResult(flagged=False, category="none", method="keyword_only")
 
     try:
         result = claude_json(

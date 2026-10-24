@@ -6,6 +6,9 @@ import { Suspense, useEffect, useState } from "react";
 import BreathingGuide from "@/components/BreathingGuide";
 import { Song, api } from "@/lib/api";
 
+// A job that hasn't left "queued" by now almost certainly isn't going to.
+const STUCK_AFTER_MS = 60_000;
+
 const PROMPTS = [
   "Let your shoulders drop away from your ears.",
   "Unclench your jaw. Soften your hands.",
@@ -21,6 +24,7 @@ function Generating() {
   const [song, setSong] = useState<Song | null>(null);
   const [failed, setFailed] = useState("");
   const [prompt, setPrompt] = useState(0);
+  const [stuck, setStuck] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setPrompt((p) => (p + 1) % PROMPTS.length), 9000);
@@ -31,6 +35,7 @@ function Generating() {
     if (!jobId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    const started = Date.now();
     const poll = async () => {
       try {
         const s = await api.song(jobId);
@@ -38,6 +43,7 @@ function Generating() {
         setSong(s);
         if (s.status === "done") return router.replace(`/song/${jobId}`);
         if (s.status === "error") return;
+        setStuck(s.status === "queued" && Date.now() - started > STUCK_AFTER_MS);
       } catch (e) {
         if (cancelled) return;
         setFailed((e as Error).message);
@@ -92,6 +98,17 @@ function Generating() {
           {song?.stage ?? "Getting ready"}…
         </p>
         <p className="mt-1 text-sm text-muted">This usually takes about a minute.</p>
+        {stuck && (
+          <div role="alert" className="mt-6 rounded-2xl bg-surface-2 p-4 text-left">
+            <p className="font-semibold">This is taking longer than it should.</p>
+            <p className="mt-1 text-muted">
+              Your song hasn&apos;t started yet. You can keep waiting, or go back and try again.
+            </p>
+            <Link href="/beats" className="mt-3 inline-flex rounded-full bg-primary px-5 py-2 font-bold text-primary-ink">
+              Try again
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

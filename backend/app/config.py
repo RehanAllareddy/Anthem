@@ -4,7 +4,7 @@ import os
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Claude (lyrics + safety screening)
     anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-opus-5-5"
+    # Lyrics + wellbeing screening: "claude", "template" (fixed per-genre lyrics,
+    # keyword-only screening), or "auto" (Claude when ANTHROPIC_API_KEY is set).
+    lyrics_provider: str = "auto"
 
     # Vocals: "elevenlabs", "local", or "auto" (ElevenLabs when a key is set, else local)
     vocal_provider: str = "auto"
@@ -64,6 +67,26 @@ class Settings(BaseSettings):
         if self.task_backend == "auto":
             return ON_VERCEL
         return self.task_backend == "vercel"
+
+    @property
+    def use_claude(self) -> bool:
+        if self.lyrics_provider == "auto":
+            return bool(self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY"))
+        return self.lyrics_provider == "claude"
+
+    def setup_problems(self) -> List[str]:
+        """Configuration that will stop songs from being made. Safe to show: no secrets."""
+        problems = []
+        if self.use_vercel_queues and not self.use_blob:
+            problems.append(
+                "No Vercel Blob store is connected. The queue worker runs on a different instance "
+                "and can't see jobs saved to local disk. Create a Private Blob store and connect it to this project."
+            )
+        if self.lyrics_provider == "claude" and not (self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")):
+            problems.append("LYRICS_PROVIDER=claude but ANTHROPIC_API_KEY is not set.")
+        if ON_VERCEL and not self.elevenlabs_api_key and self.vocal_provider != "local":
+            problems.append("ELEVENLABS_API_KEY is not set. Vercel has no built-in text-to-speech, so vocals can't be recorded.")
+        return problems
 
 
 @lru_cache

@@ -240,7 +240,7 @@ export default function CheckInPage() {
                 What&apos;s going on? <span className="font-normal text-muted">(optional)</span>
               </label>
               <p id="free-hint" className="mt-1 text-sm text-muted">
-                Share as much or as little as you like. We use it only to shape your song and never save it.
+                Share as much or as little as you like. We never save it.
               </p>
               <textarea
                 id="free"

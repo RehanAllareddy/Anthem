@@ -181,8 +181,12 @@ def handle_message(message: dict) -> None:
         return
 
     state = get(job_id)
-    if state is None or state.get("status") in FINAL:
-        return  # expired, or a redelivery of a job that already finished
+    if state is None:
+        # Usually means the API and this worker don't share storage (no Blob store connected).
+        log.error("job %s: no saved state found; is a Blob store connected?", job_id)
+        return
+    if state.get("status") in FINAL:
+        return  # a redelivery of a job that already finished
     rec = JobRecorder(state)
     try:
         if kind == "song":

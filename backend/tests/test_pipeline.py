@@ -19,11 +19,13 @@ FAKE_LYRICS = {
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
+def client(request, tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     monkeypatch.setenv("STORAGE_BACKEND", "local")
     monkeypatch.setenv("TASK_BACKEND", "local")
     monkeypatch.setenv("VOCAL_PROVIDER", "local")
+    monkeypatch.setenv("LYRICS_PROVIDER", getattr(request, "param", "claude"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-claude-is-stubbed")
     from app import config, storage, vocals
 
     def reset():
@@ -153,3 +155,50 @@ def test_local_storage_rejects_escape(tmp_path):
 
     with pytest.raises(ValueError):
         LocalStorage(tmp_path).put("../outside.txt", b"x", "text/plain")
+
+
+# ---------------------------------------------------------- template lyrics
+
+@pytest.mark.parametrize("category", ["pop", "upbeat", "chill", "rap", "rock"])
+@pytest.mark.parametrize("hobbies", [["drawing", "soccer"], ["drawing", "soccer", "my dog"]])
+def test_templates_fill_every_placeholder(category, hobbies):
+    from app.lyrics import has_profanity
+    from app.templates import fill
+
+    song = fill(category, "Maya", hobbies, "you've got this")
+    lines = song["verse1"] + song["chorus"] + song["verse2"]
+    assert len(song["verse1"]) == 8 and len(song["chorus"]) == 4 and len(song["verse2"]) == 8
+    assert not any("{" in l or "}" in l for l in lines + [song["title"]])
+    assert "Maya, you are amazing" in song["chorus"]
+    for h in hobbies:
+        assert any(h in l for l in lines), h
+    assert not has_profanity(lines)
+
+
+@pytest.mark.parametrize("client", ["template"], indirect=True)
+def test_song_with_templates_needs_no_claude(client, monkeypatch):
+    from app import lyrics, safety
+
+    def boom(**kw):
+        raise AssertionError("Claude should not be called in template mode")
+
+    monkeypatch.setattr(lyrics, "claude_json", boom)
+    monkeypatch.setattr(safety, "claude_json", boom)
+
+    assert client.get(f"{P}/health").json()["lyrics"] == "template"
+    r = client.post(f"{P}/screen", json={"text": "rough week at school", "age_range": "13-17"}).json()
+    assert r["flagged"] is False and r["method"] == "keyword_only"
+
+    song = _wait(client, _song(client, hobbies=["drawing", "soccer", "guitar"], messages=["amazing", "proud"]))
+    assert song["status"] == "done", song
+    lines = [l for s in song["sections"] for l in s["lines"]]
+    assert "Maya, you are amazing" in song["sections"][1]["lines"]
+    assert "Hear me say I'm proud of you" in song["sections"][1]["lines"]
+    assert all(any(h in l for l in lines) for h in ("drawing", "soccer", "guitar"))
+
+
+def test_profane_name_is_rejected(client):
+    r = client.post(f"{P}/songs", json={
+        "name": "shithead", "age_range": "18-24", "hobbies": ["a", "b"], "feelings": ["sad"], "beat_id": "pop-neon",
+    })
+    assert r.status_code == 422 and "kind and clean" in r.json()["detail"]

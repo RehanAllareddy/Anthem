@@ -54,7 +54,7 @@ storage/            Local-dev songs and job state (gitignored, auto-deleted)
 
 | Key | Needed for | Where to get it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Lyrics and wellbeing screening (required) | https://console.anthropic.com/settings/keys |
+| `ANTHROPIC_API_KEY` | Original lyrics and wellbeing screening (optional; without it, template lyrics are used) | https://console.anthropic.com/settings/keys |
 | `ELEVENLABS_API_KEY` | Natural-sounding vocals (optional; falls back to local TTS) | https://elevenlabs.io/app/settings/api-keys |
 
 ElevenLabs licensing: free-tier output may not be used commercially and requires attribution. If you plan to offer Anthem publicly, or want users to share songs freely, use a paid ElevenLabs plan that grants commercial rights. The beats in this repo are CC0, and the lyrics are original Claude output generated for each user.
@@ -116,7 +116,7 @@ How generation runs on Vercel:
 
 Setup:
 1. **Create a Blob store** (Storage tab → Blob), choose **Private** access, and connect it to the project. This adds `BLOB_STORE_ID`, and the backend authenticates with OIDC.
-2. **Add environment variables:** `ANTHROPIC_API_KEY`, and `ELEVENLABS_API_KEY` (required on Vercel, because `say` and `espeak` aren't available there).
+2. **Add environment variables:** `ELEVENLABS_API_KEY` (required on Vercel, because `say` and `espeak` aren't available there), plus `ANTHROPIC_API_KEY` if you want Claude-written lyrics instead of templates.
 3. **Deploy** with `vercel deploy` or by pushing to a connected Git repo. The backend build (`[tool.vercel.scripts] build` in `backend/pyproject.toml`) generates the beat loops into the bundle.
 
 Notes:
@@ -152,6 +152,15 @@ Notes:
 - Optional `"feel": "halftime"` for trap-style beats (the vocals then pace at half the BPM).
 
 The manifest is re-read automatically when it changes; there's no need to restart. Re-running `generate_beats.py` only rewrites its own generated entries and leaves hand-added beats alone.
+
+## Lyrics: Claude or templates
+
+`LYRICS_PROVIDER` is `auto` by default: Claude when `ANTHROPIC_API_KEY` is set, templates otherwise. Set it to `claude` or `template` to choose explicitly.
+
+- **Claude:** writes original lyrics for every song from all the check-in answers, and screens the "what's going on?" answer.
+- **Templates** (`backend/app/templates.py`): one fixed song per genre (pop, upbeat, chill, rap, rock). Each song fills in the listener's name, first two or three hobbies, and one chosen message ("Hear me say I'm proud of you"); the chorus always includes "*Name*, you are amazing". This mode is free and instant, but every song in a genre has the same lines. The free-text answer goes through the **keyword check only**, which catches direct phrases ("want to die", "hurt myself") but can miss indirect ones. To change the words, edit the templates. Keep hobbies in phrasings that work with any noun ("lost in {hobby1}", "from {hobby1} to {hobby2}").
+
+Names, hobbies, and custom messages are checked for profanity before a song starts, because they go straight into the lyrics.
 
 ## Vocal providers
 
