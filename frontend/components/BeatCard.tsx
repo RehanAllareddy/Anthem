@@ -13,15 +13,24 @@ type Props = {
 export default function BeatCard({ beat, selected, playing, onSelect, onTogglePreview }: Props) {
   return (
     <li
-      className={`flex items-center gap-3 rounded-2xl border-2 bg-surface p-4 transition ${
+      className={`relative flex items-center gap-3 rounded-2xl border-2 bg-surface p-4 transition hover:border-primary ${
         selected ? "border-primary shadow-md" : "border-line"
       }`}
     >
+      {/* The whole card selects the beat; the play button sits above it. */}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        aria-label={`${beat.name}: ${CATEGORY_LABELS[beat.category]}, ${beat.bpm} BPM, ${beat.mood}`}
+        onClick={onSelect}
+        className="absolute inset-0 cursor-pointer rounded-2xl"
+      />
       <button
         type="button"
         onClick={onTogglePreview}
         aria-label={`${playing ? "Stop" : "Play"} 10-second preview of ${beat.name}`}
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent-soft text-accent hover:brightness-95"
+        className="relative z-10 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent-soft text-accent hover:brightness-95"
       >
         {playing ? (
           <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden fill="currentColor">
@@ -34,23 +43,17 @@ export default function BeatCard({ beat, selected, playing, onSelect, onTogglePr
           </svg>
         )}
       </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={selected}
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 flex-col items-start text-left"
-      >
+      <div aria-hidden className="pointer-events-none flex min-w-0 flex-1 flex-col items-start">
         <span className="font-bold">{beat.name}</span>
         <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
           <span>{CATEGORY_LABELS[beat.category]}</span>
           <span>{beat.bpm} BPM</span>
           <span className="rounded-full bg-primary-soft px-2 text-ink">{beat.mood}</span>
         </span>
-      </button>
+      </div>
       <span
         aria-hidden
-        className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 ${
+        className={`pointer-events-none grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 ${
           selected ? "border-primary bg-primary text-primary-ink" : "border-line"
         }`}
       >
