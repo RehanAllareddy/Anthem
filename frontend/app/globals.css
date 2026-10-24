@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* Soft, calming palette. All text/background pairs meet WCAG AA (4.5:1+). */
+:root {
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --surface-2: #eef2ec;
+  --ink: #1f2a30;
+  --muted: #4f5d64;
+  --line: #d9ddd5;
+  --primary: #3f6352;
+  --primary-ink: #ffffff;
+  --primary-soft: #dbe8df;
+  --accent: #5b4f9e;
+  --accent-soft: #e9e5f7;
+  --highlight: #fdf1c7;
+  --danger: #9b2c2c;
+  --focus: #5b4f9e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141a1d;
+    --surface: #1c2428;
+    --surface-2: #233036;
+    --ink: #eef2f0;
+    --muted: #b3c0c4;
+    --line: #34434a;
+    --primary: #9cc9b0;
+    --primary-ink: #10201a;
+    --primary-soft: #2a3d35;
+    --accent: #c4baf2;
+    --accent-soft: #2f2a4a;
+    --highlight: #4a4120;
+    --danger: #f2a4a4;
+    --focus: #c4baf2;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-highlight: var(--highlight);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 0.5rem;
+}
+
+dialog::backdrop {
+  background: rgb(15 23 26 / 0.55);
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(0.62); }
+  33%, 50% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

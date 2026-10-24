@@ -1,0 +1,19 @@
+# secrets
+.env
+.env.local
+
+# generated audio
+storage/
+beats/loops/generated/
+
+# python
+__pycache__/
+*.pyc
+backend/.venv/
+.pytest_cache/
+
+# node
+node_modules/
+frontend/.next/
+
+.DS_Store
