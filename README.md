@@ -1,8 +1,8 @@
-# Anthem
+# Echorie
 
-Anthem helps teens and adults cope with anxiety, stress, and low moods by making them a personal, uplifting song: original lyrics written just for them, sung or rapped over a beat they pick.
+Echorie helps teens and adults cope with anxiety, stress, and low moods by making them a personal, uplifting song: original lyrics written just for them, sung or rapped over a beat they pick.
 
-> Anthem is a wellbeing tool, not a replacement for therapy or medical care. Crisis resources (988 Suicide & Crisis Lifeline; Crisis Text Line: text HOME to 741741) are linked on every page.
+> Echorie is a wellbeing tool, not a replacement for therapy or medical care. Crisis resources (988 Suicide & Crisis Lifeline; Crisis Text Line: text HOME to 741741) are linked on every page.
 
 ## How it works
 
@@ -57,7 +57,7 @@ storage/            Local-dev songs and job state (gitignored, auto-deleted)
 | `ANTHROPIC_API_KEY` | Original lyrics and wellbeing screening (optional; without it, template lyrics are used) | https://console.anthropic.com/settings/keys |
 | `ELEVENLABS_API_KEY` | Natural-sounding vocals (optional; falls back to local TTS) | https://elevenlabs.io/app/settings/api-keys |
 
-ElevenLabs licensing: free-tier output may not be used commercially and requires attribution. If you plan to offer Anthem publicly, or want users to share songs freely, use a paid ElevenLabs plan that grants commercial rights. The beats in this repo are CC0, and the lyrics are original Claude output generated for each user.
+ElevenLabs licensing: free-tier output may not be used commercially and requires attribution. If you plan to offer Echorie publicly, or want users to share songs freely, use a paid ElevenLabs plan that grants commercial rights. The beats in this repo are CC0, and the lyrics are original Claude output generated for each user.
 
 ## Run locally
 

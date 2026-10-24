@@ -32,7 +32,7 @@ export default function BeatsPage() {
         setCategories(b.categories);
         setVoices(v.voices);
       })
-      .catch(() => setLoadError("We couldn't load the beats. Is the Anthem server running?"));
+      .catch(() => setLoadError("We couldn't load the beats. Please try again."));
   }, [router]);
 
   if (!data) return null;
@@ -64,8 +64,8 @@ export default function BeatsPage() {
 
   return (
     <div className="pt-4">
-      <h1 className="text-3xl font-extrabold">Pick your beat, {data.name}</h1>
-      <p className="mt-2 text-lg text-muted">Tap play to hear a 10-second preview, then choose the one that feels right.</p>
+      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Pick a beat</h1>
+      <p className="mt-2 text-muted">Tap ▶ to preview.</p>
 
       <div className="mt-6 flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Filter beats by style">
         {(["all", ...categories] as const).map((c) => (
@@ -104,7 +104,7 @@ export default function BeatsPage() {
 
       {voices.length > 0 && (
         <section className="mt-10">
-          <h2 className="text-2xl font-extrabold">Choose a voice</h2>
+          <h2 className="text-2xl font-extrabold tracking-tight">Voice</h2>
           <div role="radiogroup" aria-label="Voice" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {voices.map((v) => (
               <button

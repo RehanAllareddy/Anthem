@@ -20,7 +20,7 @@ from .config import get_settings
 
 log = logging.getLogger(__name__)
 
-TOPIC = "anthem-songs"
+TOPIC = "echorie-songs"
 
 # Song requests can carry the user's free-text answer, so keep them in the queue
 # only as long as a generation attempt (plus retries) could need them.

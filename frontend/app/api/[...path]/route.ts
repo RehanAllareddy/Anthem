@@ -37,7 +37,7 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
       redirect: "manual",
     });
   } catch {
-    return Response.json({ detail: "Anthem is having trouble right now. Please try again in a moment." }, { status: 502 });
+    return Response.json({ detail: "Echorie is having trouble right now. Please try again in a moment." }, { status: 502 });
   }
 
   const out = new Headers();

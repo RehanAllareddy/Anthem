@@ -56,7 +56,7 @@ _KEYWORDS = [
 ]
 _KEYWORD_RE = re.compile("|".join(_KEYWORDS), re.IGNORECASE)
 
-_SYSTEM = """You are a careful wellbeing screener for Anthem, an app where teens and adults \
+_SYSTEM = """You are a careful wellbeing screener for Echorie, an app where teens and adults \
 make an uplifting personalized song. Users may describe what's going on in their life. \
 Your only job is to decide whether the text shows signs the person may be at risk and \
 should be gently offered crisis resources.

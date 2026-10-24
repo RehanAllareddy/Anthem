@@ -52,7 +52,7 @@ def encode(audio: AudioSegment) -> Tuple[bytes, str]:
     """Return (bytes, extension): MP3 when ffmpeg is available, otherwise WAV."""
     buf = io.BytesIO()
     if has_ffmpeg():
-        audio.export(buf, format="mp3", bitrate=MP3_BITRATE, tags={"artist": "Anthem"})
+        audio.export(buf, format="mp3", bitrate=MP3_BITRATE, tags={"artist": "Echorie"})
         return buf.getvalue(), "mp3"
     audio.export(buf, format="wav")
     return buf.getvalue(), "wav"

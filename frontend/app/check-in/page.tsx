@@ -120,7 +120,7 @@ export default function CheckInPage() {
 
       <form onSubmit={next} className="mt-8" noValidate>
         {current === "name" && (
-          <Question headingRef={headingRef} title="First, what should we call you?" hint="Your first name or a nickname. It'll be in your song!">
+          <Question headingRef={headingRef} title="What should we call you?" hint="It'll be in your song.">
             <label htmlFor="name" className="sr-only">
               Name or nickname
             </label>
@@ -137,7 +137,7 @@ export default function CheckInPage() {
         )}
 
         {current === "age" && (
-          <Question headingRef={headingRef} title="Which age range are you in?" hint="We only use this to keep the song's tone just right for you.">
+          <Question headingRef={headingRef} title="How old are you?" hint="Keeps the tone just right.">
             <div role="radiogroup" aria-label="Age range" className="flex flex-wrap gap-3">
               {(["13-17", "18-24", "25+"] as AgeRange[]).map((a) => (
                 <button
@@ -156,7 +156,7 @@ export default function CheckInPage() {
         )}
 
         {current === "hobbies" && (
-          <Question headingRef={headingRef} title="What are some things you love?" hint="Add 2 to 5 hobbies, interests, or favorite things.">
+          <Question headingRef={headingRef} title="What do you love?" hint="Add 2 to 5 things.">
             <div className="flex gap-2">
               <label htmlFor="hobby" className="sr-only">
                 Add a hobby
@@ -168,7 +168,7 @@ export default function CheckInPage() {
                 disabled={data.hobbies.length >= 5}
                 onChange={(e) => setHobbyDraft(e.target.value)}
                 className="min-w-0 flex-1 rounded-2xl border-2 border-line bg-surface px-4 py-3 text-lg outline-none focus:border-primary disabled:opacity-60"
-                placeholder={data.hobbies.length >= 5 ? "That's 5, perfect!" : "Type one and press Enter"}
+                placeholder={data.hobbies.length >= 5 ? "That's 5, perfect!" : "Type and press Enter"}
               />
               <button
                 type="button"
@@ -195,8 +195,7 @@ export default function CheckInPage() {
                 ))}
               </ul>
             )}
-            <p className="mt-6 text-sm font-semibold text-muted">Need ideas?</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-6 flex flex-wrap gap-2" role="group" aria-label="Suggestions">
               {HOBBY_IDEAS.filter((i) => !data.hobbies.includes(i)).map((i) => (
                 <button key={i} type="button" onClick={() => addHobby(i)} disabled={data.hobbies.length >= 5} className={`${chip(false)} text-sm disabled:opacity-50`}>
                   + {i}
@@ -207,7 +206,7 @@ export default function CheckInPage() {
         )}
 
         {current === "feelings" && (
-          <Question headingRef={headingRef} title="How have you been feeling lately?" hint="Pick as many as fit. There are no wrong answers.">
+          <Question headingRef={headingRef} title="How are you feeling?" hint="Pick any that fit.">
             <div role="group" aria-label="Feelings" className="flex flex-wrap gap-2">
               {FEELINGS.map((f) => (
                 <button
@@ -240,7 +239,7 @@ export default function CheckInPage() {
                 What&apos;s going on? <span className="font-normal text-muted">(optional)</span>
               </label>
               <p id="free-hint" className="mt-1 text-sm text-muted">
-                Share as much or as little as you like. We never save it.
+                Never saved.
               </p>
               <textarea
                 id="free"
@@ -256,7 +255,7 @@ export default function CheckInPage() {
         )}
 
         {current === "messages" && (
-          <Question headingRef={headingRef} title="What would you like to hear?" hint="Pick any that feel right, or write your own.">
+          <Question headingRef={headingRef} title="What do you need to hear?" hint="Pick any, or write your own.">
             <div role="group" aria-label="Messages" className="flex flex-wrap gap-2">
               {MESSAGES.map((m) => (
                 <button
@@ -334,11 +333,11 @@ function Question({
   return (
     <fieldset>
       <legend className="contents">
-        <h1 ref={headingRef} tabIndex={-1} className="text-3xl font-extrabold leading-tight outline-none">
+        <h1 ref={headingRef} tabIndex={-1} className="text-3xl font-extrabold leading-tight tracking-tight outline-none sm:text-4xl">
           {title}
         </h1>
       </legend>
-      <p className="mt-2 text-lg text-muted">{hint}</p>
+      <p className="mt-2 text-muted">{hint}</p>
       <div className="mt-6">{children}</div>
     </fieldset>
   );

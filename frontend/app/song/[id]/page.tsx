@@ -71,7 +71,7 @@ export default function SongPage() {
         <p role="alert" className="mt-3 text-lg text-muted">
           {error}
         </p>
-        <p className="mt-2 text-muted">Songs are deleted from our server after 24 hours to protect your privacy.</p>
+        <p className="mt-2 text-muted">Songs are deleted after 24 hours.</p>
         <Link href="/check-in" className="mt-8 inline-flex rounded-full bg-primary px-8 py-3 font-bold text-primary-ink">
           Make a new song
         </Link>
@@ -85,8 +85,9 @@ export default function SongPage() {
 
   return (
     <div className="pt-4">
-      <p className="font-bold text-primary">Your song is ready 🎉</p>
-      <h1 className="mt-1 text-4xl font-extrabold leading-tight">{song.title}</h1>
+      <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+        <span className="text-gradient">{song.title}</span>
+      </h1>
 
       <div className="sticky top-2 z-10 mt-6 rounded-3xl border border-line bg-surface p-4 shadow-sm">
         <audio
@@ -131,7 +132,7 @@ export default function SongPage() {
 
       {showBeats && (
         <section id="remix-beats" className="mt-6 rounded-3xl bg-surface-2 p-4" aria-label="Choose a new beat">
-          <p className="font-semibold">Same lyrics and voice, new beat. Preview one, then choose it.</p>
+          <p className="font-semibold">Same lyrics, new beat.</p>
           {error && (
             <p role="alert" className="mt-2 font-semibold text-danger">
               {error}
@@ -184,10 +185,7 @@ export default function SongPage() {
         />
       </section>
 
-      <p className="mt-10 rounded-2xl bg-surface-2 p-4 text-muted">
-        🔒 This song is private: only people with this link can hear it, and it&apos;s deleted from our server within 24
-        hours. Download it to keep it. It&apos;s yours to share if you want to.
-      </p>
+      <p className="mt-10 text-center text-sm text-muted">🔒 Private · Deleted in 24h · Download to keep it</p>
     </div>
   );
 }

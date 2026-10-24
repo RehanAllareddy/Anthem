@@ -77,8 +77,8 @@ function Generating() {
   const pct = Math.round((song?.progress ?? 0.03) * 100);
   return (
     <div className="flex flex-col items-center pt-6 text-center">
-      <h1 className="text-3xl font-extrabold">Making your song…</h1>
-      <p className="mt-2 text-lg text-muted">While we work, breathe along with the circle.</p>
+      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Making your song…</h1>
+      <p className="mt-2 text-muted">Breathe with the circle.</p>
       <div className="mt-8">
         <BreathingGuide />
       </div>
@@ -97,13 +97,9 @@ function Generating() {
         <p className="mt-3 font-semibold" role="status">
           {song?.stage ?? "Getting ready"}…
         </p>
-        <p className="mt-1 text-sm text-muted">This usually takes about a minute.</p>
         {stuck && (
           <div role="alert" className="mt-6 rounded-2xl bg-surface-2 p-4 text-left">
-            <p className="font-semibold">This is taking longer than it should.</p>
-            <p className="mt-1 text-muted">
-              Your song hasn&apos;t started yet. You can keep waiting, or go back and try again.
-            </p>
+            <p className="font-semibold">Taking longer than usual.</p>
             <Link href="/beats" className="mt-3 inline-flex rounded-full bg-primary px-5 py-2 font-bold text-primary-ink">
               Try again
             </Link>

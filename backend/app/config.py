@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     beats_dir: Path = BACKEND_ROOT / "beats"
     # Vercel functions can only write to /tmp.
-    storage_dir: Path = (Path(tempfile.gettempdir()) / "anthem") if os.environ.get("VERCEL") else REPO_ROOT / "storage"
+    storage_dir: Path = (Path(tempfile.gettempdir()) / "echorie") if os.environ.get("VERCEL") else REPO_ROOT / "storage"
 
     # Privacy
     retention_hours: float = 24.0

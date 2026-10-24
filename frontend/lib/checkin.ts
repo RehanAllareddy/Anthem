@@ -34,7 +34,7 @@ export const EMPTY_CHECKIN: CheckIn = {
   voiceId: "warm",
 };
 
-const KEY = "anthem.checkin";
+const KEY = "echorie.checkin";
 
 export function loadCheckIn(): CheckIn {
   try {

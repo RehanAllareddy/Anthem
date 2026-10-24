@@ -99,7 +99,7 @@ def has_profanity(lines: List[str]) -> bool:
     return any(_PROFANITY.search(l) for l in lines)
 
 
-_SYSTEM = """You write short, ORIGINAL, uplifting songs for Anthem, a wellbeing app that helps \
+_SYSTEM = """You write short, ORIGINAL, uplifting songs for Echorie, a wellbeing app that helps \
 teens and adults through anxiety, stress, and low moods. Each song is a personal gift to one listener.
 
 Rules (always):
@@ -244,6 +244,6 @@ def write_lyrics(req: SongRequestData) -> dict:
         if has_profanity(verse1 + chorus + verse2):
             retry_note = "\n\nImportant: the previous draft had a word that isn't allowed. Keep every word clean."
             continue
-        title = (data.get("title") or f"{req.name}'s Anthem").strip()[:60]
+        title = (data.get("title") or f"{req.name}'s Song").strip()[:60]
         return _package(title, verse1, chorus, verse2, timing)
     raise ClaudeUnavailable("lyrics_failed_checks")

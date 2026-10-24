@@ -1,4 +1,4 @@
-"""Synthesize Anthem's placeholder beat library.
+"""Synthesize Echorie's placeholder beat library.
 
 Every loop is rendered from scratch with numpy (no samples, no third-party audio),
 so the output is ours to license as CC0. Loops are an exact number of bars long and
@@ -28,7 +28,7 @@ BEATS_DIR = Path(__file__).resolve().parent
 LOOPS_DIR = BEATS_DIR / "loops" / "generated"
 MANIFEST = BEATS_DIR / "beats.json"
 GENERATED_SOURCE = "generated://beats/generate_beats.py"
-GENERATED_LICENSE = "CC0-1.0 (synthesized by Anthem's generate_beats.py)"
+GENERATED_LICENSE = "CC0-1.0 (synthesized by Echorie's generate_beats.py)"
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 MAJOR = [0, 2, 4, 5, 7, 9, 11]

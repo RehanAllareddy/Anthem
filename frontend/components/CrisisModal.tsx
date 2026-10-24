@@ -32,31 +32,25 @@ export default function CrisisModal({ open, isTeen, onContinue }: Props) {
     >
       <div className="max-h-[85dvh] overflow-y-auto p-6">
         <h2 id="crisis-title" className="text-2xl font-extrabold">
-          Thank you for sharing that with us
+          Thank you for telling us
         </h2>
         <p className="mt-3 text-lg leading-relaxed">
-          It sounds like things might be really heavy right now. You deserve support from a real person, and you
-          don&apos;t have to go through this alone. These free services are there any time, day or night:
+          It sounds really heavy right now. You deserve support from a real person, free and any time:
         </p>
         <div className="mt-4">
           <ResourceList />
         </div>
         <p className="mt-4 text-muted">
-          {isTeen
-            ? "Talking to a trusted adult, like a parent, school counselor, coach, or teacher, can help too. "
-            : "Reaching out to someone you trust can help too. "}
-          If you&apos;re in immediate danger, call 911.
+          {isTeen ? "A trusted adult, like a parent or school counselor, can help too. " : "Someone you trust can help too. "}
+          In immediate danger? Call 911.
         </p>
-        <p className="mt-4 text-muted">
-          If you&apos;d still like your song, you can keep going. We&apos;ll leave what you wrote out of the lyrics and
-          keep the song focused on you and what you love.
-        </p>
+        <p className="mt-2 text-muted">You can still make your song. We&apos;ll leave what you wrote out of it.</p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <a
             href="/support"
             className="rounded-full border border-line bg-surface px-5 py-3 text-center font-bold text-accent"
           >
-            See all support options
+            More support
           </a>
           <button
             type="button"
@@ -64,7 +58,7 @@ export default function CrisisModal({ open, isTeen, onContinue }: Props) {
             onClick={onContinue}
             className="rounded-full bg-primary px-5 py-3 font-bold text-primary-ink"
           >
-            Continue making my song
+            Continue to my song
           </button>
         </div>
       </div>

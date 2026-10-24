@@ -1,7 +1,7 @@
 [project]
-name = "anthem-backend"
+name = "echorie-backend"
 version = "0.1.0"
-description = "Anthem song pipeline: lyrics, vocals, mixing"
+description = "Echorie song pipeline: lyrics, vocals, mixing"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.125.0",

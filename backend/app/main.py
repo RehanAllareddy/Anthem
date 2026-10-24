@@ -20,7 +20,7 @@ from .storage import get_storage
 from .vocals import VOICE_OPTIONS, get_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("anthem")
+log = logging.getLogger("echorie")
 
 AgeRange = Literal["13-17", "18-24", "25+"]
 
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 # (over a Vercel service binding), so there's no CORS. Routes live under
 # API_PREFIX ("/api"), matching the paths the proxy forwards. URLs returned to the
 # client (preview_url, audio_url) are relative to this prefix.
-app = FastAPI(title="Anthem API", lifespan=lifespan)
+app = FastAPI(title="Echorie API", lifespan=lifespan)
 router = APIRouter()
 
 
@@ -179,7 +179,7 @@ async def create_song(body: SongIn) -> dict:
     problems = get_settings().setup_problems()
     if problems:
         log.error("refusing to start song: %s", " | ".join(problems))
-        raise HTTPException(503, "Anthem isn't fully set up yet: " + " ".join(problems))
+        raise HTTPException(503, "Echorie isn't fully set up yet: " + " ".join(problems))
 
     # Names, hobbies and custom words go straight into the lyrics (always, with templates).
     typed = [body.name, *body.hobbies, body.custom_message or "", body.feelings_other or ""]
@@ -228,7 +228,7 @@ def song_audio(job_id: str, download: bool = Query(False)):
     if data is None:
         raise HTTPException(404, "This song has expired")
     ext = job["audio_path"].rsplit(".", 1)[-1]
-    title = "".join(c for c in (job.get("title") or "anthem") if c.isalnum() or c in " -_").strip() or "anthem"
+    title = "".join(c for c in (job.get("title") or "echorie") if c.isalnum() or c in " -_").strip() or "echorie"
     disposition = f'attachment; filename="{title}.{ext}"' if download else "inline"
     return Response(
         data,
