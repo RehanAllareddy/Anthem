@@ -123,6 +123,6 @@ def get_storage() -> Storage:
     s = get_settings()
     if s.use_blob:
         return BlobStorage()
-    if s.storage_backend == "auto" and s.use_vercel_queues:
+    if s.storage_backend == "auto" and s.task_mode != "local":
         log.warning("No Blob store connected: songs are stored on this instance only and may 404 on other instances")
     return LocalStorage(s.storage_dir)

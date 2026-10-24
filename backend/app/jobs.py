@@ -1,7 +1,8 @@
 """Song jobs: state, the generation pipeline, and expiry.
 
-The API creates a job and enqueues a message (tasks.enqueue); a worker (a Vercel
-Queues subscriber in production, a local thread in development) runs it. Several
+The API creates a job and dispatches a message (tasks.dispatch), which runs
+handle_message after the response (Vercel wait_until), on a Vercel Queues worker,
+or on a local thread. Several
 instances may serve one user, so storage is the single source of truth:
 
     jobs/<id>/state/<ms>-<seq>.json   immutable state snapshots, newest wins
@@ -127,30 +128,32 @@ def _friendly(e: Exception) -> str:
 # --------------------------------------------------------------- creating
 
 def _schedule_expiry(job_id: str) -> None:
+    """Delete the job after the retention window. Only Vercel Queues can delay work;
+    in other modes the retention sweep (cleanup.py) handles expiry."""
     delay = get_settings().retention_hours * 3600
-    if delay >= tasks.MAX_RETENTION_S:
-        return  # longer than a queue message can wait; the sweep handles it
-    tasks.enqueue(
+    if get_settings().task_mode != "queue" or delay >= tasks.MAX_RETENTION_S:
+        return
+    tasks.dispatch(
         {"kind": "expire", "job_id": job_id},
         delay_s=delay,
         retention_s=min(delay + 3600, tasks.MAX_RETENTION_S),
     )
 
 
-def create_song(request: dict, beat: Beat, voice_id: str, name: str) -> str:
-    """request: validated SongIn fields. May include free_text, which only travels
-    inside the short-lived queue message."""
+def create_song(request: dict, beat: Beat, voice_id: str, name: str) -> tuple:
+    """Save a queued job and return (job_id, message); the caller dispatches the message.
+
+    request: validated SongIn fields. May include free_text, which is never stored;
+    it only travels in the message (in memory, or a short-lived queue message).
+    """
     job_id = new_job_id()
     JobRecorder(_initial_state(job_id, beat, voice_id, name=name)).flush()
-    tasks.enqueue(
-        {"kind": "song", "job_id": job_id, "request": request},
-        retention_s=tasks.SONG_MESSAGE_RETENTION_S,
-    )
     _schedule_expiry(job_id)
-    return job_id
+    return job_id, {"kind": "song", "job_id": job_id, "request": request}
 
 
-def create_remix(source: dict, beat: Beat) -> str:
+def create_remix(source: dict, beat: Beat) -> tuple:
+    """Save a queued remix job and return (job_id, message)."""
     job_id = new_job_id()
     JobRecorder(
         _initial_state(
@@ -163,9 +166,8 @@ def create_remix(source: dict, beat: Beat) -> str:
             remix_of=source["id"],
         )
     ).flush()
-    tasks.enqueue({"kind": "remix", "job_id": job_id, "source_id": source["id"]})
     _schedule_expiry(job_id)
-    return job_id
+    return job_id, {"kind": "remix", "job_id": job_id, "source_id": source["id"]}
 
 
 # ---------------------------------------------------------------- worker

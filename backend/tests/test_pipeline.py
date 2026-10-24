@@ -202,3 +202,35 @@ def test_profane_name_is_rejected(client):
         "name": "shithead", "age_range": "18-24", "hobbies": ["a", "b"], "feelings": ["sad"], "beat_id": "pop-neon",
     })
     assert r.status_code == 422 and "kind and clean" in r.json()["detail"]
+
+
+def test_wait_until_dispatch_and_fallback(monkeypatch):
+    import asyncio
+    import threading
+
+    from vercel.cache.context import set_context
+
+    from app import config, tasks
+
+    monkeypatch.setenv("TASK_BACKEND", "wait_until")
+    config.get_settings.cache_clear()
+    handled = []
+    done = threading.Event()
+    monkeypatch.setattr(tasks, "_handle", lambda m: (handled.append(m["job_id"]), done.set()))
+    try:
+        # On Vercel the runtime provides the hook: the job must be handed to it.
+        kept_alive = []
+        set_context(wait_until=kept_alive.append)
+        tasks.dispatch({"kind": "song", "job_id": "a"})
+        assert len(kept_alive) == 1 and handled == []
+        asyncio.run(kept_alive[0])
+        assert handled == ["a"]
+
+        # Without the hook, fall back to a thread instead of silently dropping the job.
+        set_context(wait_until=None)
+        done.clear()
+        tasks.dispatch({"kind": "song", "job_id": "b"})
+        assert done.wait(5) and handled == ["a", "b"]
+    finally:
+        set_context(wait_until=None)
+        config.get_settings.cache_clear()

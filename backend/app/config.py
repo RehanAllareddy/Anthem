@@ -40,8 +40,9 @@ class Settings(BaseSettings):
     # Where songs and job state live: "blob" (Vercel Blob), "local" (disk), or
     # "auto" (Blob when a Blob store is connected, else disk).
     storage_backend: str = "auto"
-    # How generation runs: "vercel" (Vercel Queues), "local" (in-process threads),
-    # or "auto" (Queues on Vercel preview/production, threads everywhere else).
+    # How generation runs: "wait_until" (the API function keeps running after it
+    # responds), "vercel" (Vercel Queues + app/worker.py), "local" (in-process
+    # threads), or "auto" (wait_until on Vercel preview/production, else local).
     task_backend: str = "auto"
 
     beats_dir: Path = BACKEND_ROOT / "beats"
@@ -63,10 +64,11 @@ class Settings(BaseSettings):
         return self.storage_backend == "blob"
 
     @property
-    def use_vercel_queues(self) -> bool:
+    def task_mode(self) -> str:
+        """"queue", "wait_until", or "local"."""
         if self.task_backend == "auto":
-            return ON_VERCEL
-        return self.task_backend == "vercel"
+            return "wait_until" if ON_VERCEL else "local"
+        return {"vercel": "queue", "queue": "queue", "wait_until": "wait_until"}.get(self.task_backend, "local")
 
     @property
     def use_claude(self) -> bool:
@@ -77,10 +79,10 @@ class Settings(BaseSettings):
     def setup_problems(self) -> List[str]:
         """Configuration that will stop songs from being made. Safe to show: no secrets."""
         problems = []
-        if self.use_vercel_queues and not self.use_blob:
+        if ON_VERCEL and not self.use_blob:
             problems.append(
-                "No Vercel Blob store is connected. The queue worker runs on a different instance "
-                "and can't see jobs saved to local disk. Create a Private Blob store and connect it to this project."
+                "No Vercel Blob store is connected. Requests are served by many instances that "
+                "can't see each other's local disk. Create a Private Blob store and connect it to this project."
             )
         if self.lyrics_provider == "claude" and not (self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")):
             problems.append("LYRICS_PROVIDER=claude but ANTHROPIC_API_KEY is not set.")

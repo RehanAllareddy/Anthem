@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional
@@ -8,7 +9,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
-from . import jobs
+from . import jobs, tasks
 from .beats import CATEGORIES, get_beat, load_beats, preview_audio
 from .cleanup import maybe_sweep, start_background_cleanup
 from .config import get_settings
@@ -29,12 +30,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     # On Vercel, expiry is driven by delayed queue messages; a background thread
     # wouldn't run reliably between requests.
-    stop = None if settings.use_vercel_queues else start_background_cleanup()
+    stop = start_background_cleanup() if settings.task_mode == "local" else None
     log.info(
         "Vocals: %s | storage: %s | tasks: %s | MP3 export: %s",
         get_provider().name,
         get_storage().name,
-        "vercel-queues" if settings.use_vercel_queues else "local-threads",
+        settings.task_mode,
         "yes" if has_ffmpeg() else "no (WAV fallback)",
     )
     yield
@@ -121,7 +122,7 @@ def health() -> dict:
         "problems": problems,
         "lyrics": "claude" if settings.use_claude else "template",
         "storage": get_storage().name,
-        "tasks": "vercel-queues" if settings.use_vercel_queues else "local-threads",
+        "tasks": settings.task_mode,
         "vocal_provider": get_provider().name,
         "mp3": has_ffmpeg(),
     }
@@ -168,7 +169,7 @@ def screen(body: ScreenIn) -> dict:
 
 
 @router.post("/songs", status_code=202)
-def create_song(body: SongIn) -> dict:
+async def create_song(body: SongIn) -> dict:
     beat = get_beat(body.beat_id)
     if not beat:
         raise HTTPException(404, "Beat not found")
@@ -198,16 +199,20 @@ def create_song(body: SongIn) -> dict:
         free_text=free_text,
     )
     try:
-        job_id = jobs.create_song(request, beat, body.voice_id, body.name)
+        # Storage calls block, so run them off the event loop; dispatch must run on
+        # it, because wait_until ties the work to this request.
+        job_id, message = await asyncio.to_thread(jobs.create_song, request, beat, body.voice_id, body.name)
+        tasks.dispatch(message, retention_s=tasks.SONG_MESSAGE_RETENTION_S)
     except Exception as e:  # noqa: BLE001
         log.error("could not start song: %s", type(e).__name__)
         raise HTTPException(503, "We couldn't start your song just now. Please try again.") from None
-    maybe_sweep()
+    await asyncio.to_thread(maybe_sweep)
     return {"job_id": job_id}
 
 
 @router.get("/songs/{job_id}")
 def song_status(job_id: str) -> dict:
+    maybe_sweep()  # cheap unless a sweep is due; keeps retention working without a scheduler
     job = jobs.get(job_id)
     if not job:
         raise HTTPException(404, "This song has expired or doesn't exist")
@@ -233,15 +238,16 @@ def song_audio(job_id: str, download: bool = Query(False)):
 
 
 @router.post("/songs/{job_id}/remix", status_code=202)
-def remix(job_id: str, body: RemixIn) -> dict:
-    source = jobs.get(job_id)
+async def remix(job_id: str, body: RemixIn) -> dict:
+    source = await asyncio.to_thread(jobs.get, job_id)
     if not source or source.get("status") != "done":
         raise HTTPException(404, "This song has expired or doesn't exist")
     beat = get_beat(body.beat_id)
     if not beat:
         raise HTTPException(404, "Beat not found")
     try:
-        new_id = jobs.create_remix(source, beat)
+        new_id, message = await asyncio.to_thread(jobs.create_remix, source, beat)
+        tasks.dispatch(message)
     except Exception as e:  # noqa: BLE001
         log.error("could not start remix: %s", type(e).__name__)
         raise HTTPException(503, "We couldn't start your remix just now. Please try again.") from None

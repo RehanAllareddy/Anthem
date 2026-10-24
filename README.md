@@ -27,8 +27,8 @@ backend/            FastAPI app (Python 3.12, managed with uv)
   pyproject.toml    Dependencies + Vercel entrypoint, build script, queue subscriber
   app/main.py       HTTP routes, all under /api
   app/jobs.py       Job state, generation pipeline, expiry
-  app/tasks.py      Runs jobs: Vercel Queues in production, threads locally
-  app/worker.py     Vercel Queues subscriber (private queue-triggered function)
+  app/tasks.py      Runs jobs: wait_until on Vercel, threads locally, or Vercel Queues
+  app/worker.py     Vercel Queues subscriber (only used with TASK_BACKEND=vercel)
   app/storage.py    Private Vercel Blob in production, ./storage on disk locally
   app/safety.py     Free-text wellbeing screening (keywords + Claude)
   app/lyrics.py     Claude lyric generation, style/tempo fitting, checks
@@ -109,10 +109,12 @@ The tests run fully offline: Claude is stubbed, vocals use local TTS, storage is
 | `backend` | `backend/` | No, internal only | FastAPI (`app.main:app`). Reachable only through the frontend's binding. Also deploys the queue subscriber in `app/worker.py`. |
 
 How generation runs on Vercel:
-1. `POST /api/songs` writes a "queued" job state to Blob and publishes a message to the `anthem-songs` topic.
-2. A private queue-triggered function (`app/worker.py`) writes the lyrics, records the vocals, mixes the song, and stores it in Blob. It updates the job state as it goes.
+1. `POST /api/songs` saves a "queued" job state to Blob and responds right away.
+2. The same function keeps running after the response (`vercel.functions.wait_until`). It writes the lyrics, records the vocals, mixes the song, and saves it to Blob, updating the job state as it goes. This must finish within the function's max duration, 300 s by default; a song takes about a minute.
 3. The browser polls `/api/songs/<id>`. Each poll reads the newest state snapshot from Blob, so it works on any instance.
-4. The job also publishes a delayed `expire` message that deletes its files after `RETENTION_HOURS`. A sweep on new song requests backs this up.
+4. Songs older than `RETENTION_HOURS` are deleted by a sweep that runs at most every `CLEANUP_INTERVAL_MINUTES` per instance, triggered by song requests and status polls.
+
+To use Vercel Queues instead (durable, with retries), set `TASK_BACKEND=vercel`. Generation then runs in the subscriber in `app/worker.py`, and each song schedules its own deletion with a delayed message.
 
 Setup:
 1. **Create a Blob store** (Storage tab → Blob), choose **Private** access, and connect it to the project. This adds `BLOB_STORE_ID`, and the backend authenticates with OIDC.
