@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional
+from typing import Dict
 
 import httpx
 from pydub import AudioSegment
@@ -56,8 +56,6 @@ class ElevenLabsProvider(VocalProvider):
         text: str,
         voice_id: str,
         delivery: Delivery,
-        previous_text: Optional[str] = None,
-        next_text: Optional[str] = None,
     ) -> AudioSegment:
         voice = self._voice_map.get(voice_id) or next(iter(self._voice_map.values()))
         settings = dict(_SETTINGS.get(delivery.category, _SETTINGS["pop"]))
@@ -67,11 +65,8 @@ class ElevenLabsProvider(VocalProvider):
             "model_id": self._model_id,
             "voice_settings": {**settings, "use_speaker_boost": True, "speed": speed},
         }
-        # Neighbouring lines help the model keep a consistent, flowing delivery.
-        if previous_text:
-            body["previous_text"] = previous_text
-        if next_text:
-            body["next_text"] = next_text
+        # No previous_text/next_text: with them, ElevenLabs sometimes speaks the start
+        # of the neighbouring line at the edge of this clip.
 
         url = API_URL.format(voice_id=voice)
         for attempt in range(4):

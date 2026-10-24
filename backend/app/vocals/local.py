@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from pydub import AudioSegment
 
@@ -21,9 +21,8 @@ _SAY_VOICES: Dict[str, List[str]] = {
     "warm": ["Samantha", "Karen", "Moira"],
     "bright": ["Tessa", "Karen", "Samantha"],
     "deep": ["Daniel", "Alex", "Fred"],
-    "smooth": ["Rishi", "Tom", "Alex", "Daniel"],
 }
-_ESPEAK_VOICES = {"warm": "en-us+f3", "bright": "en-us+f4", "deep": "en-us+m3", "smooth": "en-us+m7"}
+_ESPEAK_VOICES = {"warm": "en-us+f3", "bright": "en-us+f4", "deep": "en-us+m3"}
 
 
 @lru_cache
@@ -48,8 +47,6 @@ class LocalProvider(VocalProvider):
         text: str,
         voice_id: str,
         delivery: Delivery,
-        previous_text: Optional[str] = None,
-        next_text: Optional[str] = None,
     ) -> AudioSegment:
         rate = _RATE.get(delivery.category, 175)
         with tempfile.TemporaryDirectory() as tmp:

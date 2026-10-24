@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     elevenlabs_voice_warm: str = "21m00Tcm4TlvDq8ikWAM"
     elevenlabs_voice_bright: str = "EXAVITQu4vr4xnygBOkJ"
     elevenlabs_voice_deep: str = "pNInz6obpgDQGcFmaJgB"
-    elevenlabs_voice_smooth: str = "ErXwobaYiR6NdRHJ7Mlw"
 
     # Where songs and job state live: "blob" (Vercel Blob), "local" (disk), or
     # "auto" (Blob when a Blob store is connected, else disk).

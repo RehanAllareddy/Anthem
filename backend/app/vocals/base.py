@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 from pydub import AudioSegment
 
@@ -11,7 +11,6 @@ VOICE_OPTIONS = [
     {"id": "warm", "label": "Warm", "description": "Friendly and reassuring"},
     {"id": "bright", "label": "Bright", "description": "Light and upbeat"},
     {"id": "deep", "label": "Deep", "description": "Grounded and steady"},
-    {"id": "smooth", "label": "Smooth", "description": "Relaxed and mellow"},
 ]
 
 
@@ -42,7 +41,5 @@ class VocalProvider(ABC):
         text: str,
         voice_id: str,
         delivery: Delivery,
-        previous_text: Optional[str] = None,
-        next_text: Optional[str] = None,
     ) -> AudioSegment:
         """Return one line of vocals (any sample rate; the mixer normalizes)."""

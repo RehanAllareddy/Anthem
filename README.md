@@ -168,7 +168,7 @@ Names, hobbies, and custom messages are checked for profanity before a song star
 
 Set `VOCAL_PROVIDER` to `elevenlabs`, `local`, or `auto`.
 
-- **ElevenLabs** (`app/vocals/elevenlabs.py`): each lyric line goes through the text-to-speech API with neighbouring lines passed as context, so the delivery stays consistent. Voice expressiveness and speed are tuned per genre. The four UI voices (Warm, Bright, Deep, Smooth) map to ElevenLabs premade voices; to use any voices from your library, set `ELEVENLABS_VOICE_*`.
+- **ElevenLabs** (`app/vocals/elevenlabs.py`): each lyric line goes through the text-to-speech API on its own. Neighbouring lines aren't sent as context, because ElevenLabs then sometimes speaks a fragment of the next line at the end of a clip. Voice expressiveness and speed are tuned per genre. The three UI voices (Warm, Bright, Deep) are set with `ELEVENLABS_VOICE_WARM`, `_BRIGHT`, and `_DEEP`. On the free plan, use voices you designed or the account's default voices: free accounts can't use Voice Library voices through the API.
 - **Local** (`app/vocals/local.py`): macOS `say` or `espeak-ng`. It's free and offline, but it sounds robotic. It's meant for development.
 
 Text-to-speech speaks rhythmically; it doesn't sing a melody. It works well for rap and spoken-word delivery. For genuinely sung vocals, add a provider that subclasses `VocalProvider` in `app/vocals/base.py` (for example a singing-synthesis model) and register it in `app/vocals/__init__.py`. The rest of the pipeline doesn't change.

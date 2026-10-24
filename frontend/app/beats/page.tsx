@@ -105,7 +105,7 @@ export default function BeatsPage() {
       {voices.length > 0 && (
         <section className="mt-10">
           <h2 className="text-2xl font-extrabold">Choose a voice</h2>
-          <div role="radiogroup" aria-label="Voice" className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div role="radiogroup" aria-label="Voice" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {voices.map((v) => (
               <button
                 key={v.id}

@@ -28,7 +28,6 @@ def get_provider() -> VocalProvider:
                 "warm": s.elevenlabs_voice_warm,
                 "bright": s.elevenlabs_voice_bright,
                 "deep": s.elevenlabs_voice_deep,
-                "smooth": s.elevenlabs_voice_smooth,
             },
         )
     if choice == "local":

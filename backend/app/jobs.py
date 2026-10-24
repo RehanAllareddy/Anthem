@@ -245,18 +245,12 @@ def _record_vocals(rec: JobRecorder, sections: List[dict], beat: Beat, voice_id:
     store = get_storage()
     flat = [(si, s["type"], text) for si, s in enumerate(sections) for text in s["lines"]]
     # Repeated choruses reuse the same recording.
-    first_index: Dict[tuple, int] = {}
-    for i, (_, st, t) in enumerate(flat):
-        first_index.setdefault((st, t), i)
+    unique = list(dict.fromkeys((st, t) for _, st, t in flat))
 
     clips: Dict[tuple, str] = {}
-    total = len(first_index)
-    for n, ((stype, text), idx) in enumerate(first_index.items()):
-        prev_text = flat[idx - 1][2] if idx > 0 else None
-        next_text = flat[idx + 1][2] if idx + 1 < len(flat) else None
-        seg = provider.synthesize(
-            text, voice_id, Delivery(beat.category, beat.feel_bpm, stype), previous_text=prev_text, next_text=next_text
-        )
+    total = len(unique)
+    for n, (stype, text) in enumerate(unique):
+        seg = provider.synthesize(text, voice_id, Delivery(beat.category, beat.feel_bpm, stype))
         buf = io.BytesIO()
         seg.export(buf, format="wav")
         path = f"{_prefix(rec.state['id'])}vocals/{n:02d}.wav"
