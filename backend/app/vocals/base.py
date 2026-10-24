@@ -23,9 +23,11 @@ class Delivery:
 
 
 class VocalError(RuntimeError):
-    def __init__(self, message: str, code: str = "vocals_failed"):
+    def __init__(self, message: str, code: str = "vocals_failed", detail: str = ""):
         super().__init__(message)
-        self.code = code  # short, non-sensitive reason shown to the client for troubleshooting
+        # Short, non-sensitive reason and provider message, shown to the client for troubleshooting.
+        self.code = code
+        self.detail = detail
 
 
 class VocalProvider(ABC):
