@@ -23,7 +23,9 @@ class Delivery:
 
 
 class VocalError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "vocals_failed"):
+        super().__init__(message)
+        self.code = code  # short, non-sensitive reason shown to the client for troubleshooting
 
 
 class VocalProvider(ABC):

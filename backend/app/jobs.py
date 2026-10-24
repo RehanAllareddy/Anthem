@@ -198,8 +198,9 @@ def handle_message(message: dict) -> None:
         else:
             log.warning("unknown message kind %r", kind)
     except Exception as e:  # noqa: BLE001 - always end in a state the user can see
-        log.warning("job %s failed: %s", job_id, type(e).__name__)
-        rec.update(status="error", stage=STAGES["error"], error=_friendly(e))
+        code = getattr(e, "code", None) or type(e).__name__
+        log.warning("job %s failed: %s", job_id, code)
+        rec.update(status="error", stage=STAGES["error"], error=_friendly(e), error_code=code)
 
 
 def _run_song(rec: JobRecorder, request: dict) -> None:
@@ -329,7 +330,7 @@ def audio(job: dict) -> Optional[bytes]:
 
 
 def public_view(job: dict) -> dict:
-    view = {k: job.get(k) for k in ("id", "status", "stage", "progress", "error", "beat_id", "voice_id", "title")}
+    view = {k: job.get(k) for k in ("id", "status", "stage", "progress", "error", "error_code", "beat_id", "voice_id", "title")}
     if job.get("status") == "done":
         view.update(
             sections=job.get("sections"),

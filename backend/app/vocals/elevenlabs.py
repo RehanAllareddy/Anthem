@@ -21,6 +21,19 @@ _SETTINGS: Dict[str, dict] = {
 }
 
 
+def _error_code(resp: httpx.Response) -> str:
+    """e.g. "elevenlabs_401_missing_permissions", from ElevenLabs' {"detail": {"status": ...}}."""
+    reason = ""
+    try:
+        detail = resp.json().get("detail")
+        if isinstance(detail, dict):
+            reason = str(detail.get("status") or detail.get("code") or "")
+    except ValueError:
+        pass
+    reason = "".join(c if c.isalnum() else "_" for c in reason)[:60]
+    return f"elevenlabs_{resp.status_code}" + (f"_{reason}" if reason else "")
+
+
 class ElevenLabsProvider(VocalProvider):
     name = "elevenlabs"
 
@@ -60,5 +73,5 @@ class ElevenLabsProvider(VocalProvider):
                 time.sleep(float(resp.headers.get("retry-after", 2 ** attempt)))
                 continue
             # Don't include the request body (lyrics) in errors.
-            raise VocalError(f"ElevenLabs returned HTTP {resp.status_code}")
+            raise VocalError(f"ElevenLabs returned HTTP {resp.status_code}", code=_error_code(resp))
         raise VocalError("ElevenLabs retries exhausted")
